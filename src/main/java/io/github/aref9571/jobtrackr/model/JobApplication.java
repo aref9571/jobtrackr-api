@@ -1,25 +1,63 @@
 package io.github.aref9571.jobtrackr.model;
 
 import io.github.aref9571.jobtrackr.exception.InvalidApplicationStateException;
+import jakarta.persistence.Column;
+import jakarta.persistence.Entity;
+import jakarta.persistence.EnumType;
+import jakarta.persistence.Enumerated;
+import jakarta.persistence.Id;
+import jakarta.persistence.PrePersist;
+import jakarta.persistence.PreUpdate;
+import jakarta.persistence.Table;
+import org.hibernate.annotations.JdbcTypeCode;
+import org.hibernate.type.SqlTypes;
 
+import java.time.Instant;
 import java.time.LocalDate;
 import java.util.Currency;
 import java.util.UUID;
 
+@Entity
+@Table(name = "job_applications")
 public class JobApplication {
 
     private static final int MAX_COMPANY_LENGTH = 100;
     private static final int MAX_ROLE_LENGTH = 100;
     private static final int MAX_NOTES_LENGTH = 1000;
 
-    private final UUID id;
-    private final String company;
-    private final String role;
+    @Id
+    private UUID id;
+
+    @Column(nullable = false, length = MAX_COMPANY_LENGTH)
+    private String company;
+
+    @Column(nullable = false, length = MAX_ROLE_LENGTH)
+    private String role;
+
+    @Enumerated(EnumType.STRING)
+    @Column(nullable = false, length = 20)
     private ApplicationStatus status;
-    private final LocalDate appliedDate;
-    private final Long expectedSalaryCents;
-    private final String salaryCurrency;
-    private final String notes;
+
+    @Column(nullable = false)
+    private LocalDate appliedDate;
+
+    private Long expectedSalaryCents;
+
+    @JdbcTypeCode(SqlTypes.CHAR)
+    @Column(length = 3)
+    private String salaryCurrency;
+
+    @Column(length = MAX_NOTES_LENGTH)
+    private String notes;
+
+    @Column(nullable = false, updatable = false)
+    private Instant createdAt;
+
+    @Column(nullable = false)
+    private Instant updatedAt;
+
+    protected JobApplication() {
+    }
 
     public JobApplication(String company,
                           String role,
@@ -52,6 +90,17 @@ public class JobApplication {
         status = newStatus;
     }
 
+    @PrePersist
+    void onCreate() {
+        createdAt = Instant.now();
+        updatedAt = createdAt;
+    }
+
+    @PreUpdate
+    void onUpdate() {
+        updatedAt = Instant.now();
+    }
+
     public UUID getId() {
         return id;
     }
@@ -82,6 +131,14 @@ public class JobApplication {
 
     public String getNotes() {
         return notes;
+    }
+
+    public Instant getCreatedAt() {
+        return createdAt;
+    }
+
+    public Instant getUpdatedAt() {
+        return updatedAt;
     }
 
     private static String requireText(String value, String fieldName, int maxLength) {
