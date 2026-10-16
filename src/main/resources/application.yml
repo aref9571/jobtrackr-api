@@ -1,6 +1,14 @@
 spring:
   application:
     name: jobtrackr-api
+  datasource:
+    url: ${DB_URL:jdbc:postgresql://localhost:5432/jobtrackr}
+    username: ${DB_USERNAME:jobtrackr}
+    password: ${DB_PASSWORD}
+  jpa:
+    hibernate:
+      ddl-auto: validate
+    open-in-view: false
 
 server:
   port: 8080
