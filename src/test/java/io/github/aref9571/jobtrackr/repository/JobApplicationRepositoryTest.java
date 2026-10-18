@@ -111,6 +111,18 @@ class JobApplicationRepositoryTest {
     }
 
     @Test
+    void saveAndFlush_newApplication_returnsTimestampsAsStored() {
+        JobApplication saved = repository.saveAndFlush(
+                new JobApplication("ACME Corp", "Backend Engineer", APPLIED_DATE, null, null, null));
+        entityManager.clear();
+
+        JobApplication loaded = repository.findById(saved.getId()).orElseThrow();
+
+        assertThat(loaded.getCreatedAt()).isEqualTo(saved.getCreatedAt());
+        assertThat(loaded.getUpdatedAt()).isEqualTo(saved.getUpdatedAt());
+    }
+
+    @Test
     void save_changedStatus_updatesOnlyUpdatedTimestamp() {
         JobApplication saved = repository.saveAndFlush(
                 new JobApplication("ACME Corp", "Backend Engineer", APPLIED_DATE, null, null, null));

@@ -14,6 +14,7 @@ import org.hibernate.type.SqlTypes;
 
 import java.time.Instant;
 import java.time.LocalDate;
+import java.time.temporal.ChronoUnit;
 import java.util.Currency;
 import java.util.UUID;
 
@@ -95,13 +96,13 @@ public class JobApplication {
 
     @PrePersist
     void onCreate() {
-        createdAt = Instant.now();
+        createdAt = currentTime();
         updatedAt = createdAt;
     }
 
     @PreUpdate
     void onUpdate() {
-        updatedAt = Instant.now();
+        updatedAt = currentTime();
     }
 
     public UUID getId() {
@@ -142,6 +143,10 @@ public class JobApplication {
 
     public Instant getUpdatedAt() {
         return updatedAt;
+    }
+
+    private static Instant currentTime() {
+        return Instant.now().truncatedTo(ChronoUnit.MICROS);
     }
 
     private void setDetails(String company,
