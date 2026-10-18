@@ -1,0 +1,320 @@
+package io.github.aref9571.jobtrackr.service;
+
+import io.github.aref9571.jobtrackr.dto.ApplicationResponse;
+import io.github.aref9571.jobtrackr.dto.ChangeStatusRequest;
+import io.github.aref9571.jobtrackr.dto.CreateApplicationRequest;
+import io.github.aref9571.jobtrackr.dto.UpdateApplicationRequest;
+import io.github.aref9571.jobtrackr.exception.ApplicationNotFoundException;
+import io.github.aref9571.jobtrackr.exception.DuplicateApplicationException;
+import io.github.aref9571.jobtrackr.exception.InvalidApplicationStateException;
+import io.github.aref9571.jobtrackr.model.ApplicationStatus;
+import io.github.aref9571.jobtrackr.model.JobApplication;
+import io.github.aref9571.jobtrackr.repository.JobApplicationRepository;
+import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.extension.ExtendWith;
+import org.mockito.InjectMocks;
+import org.mockito.Mock;
+import org.mockito.junit.jupiter.MockitoExtension;
+
+import java.time.LocalDate;
+import java.util.List;
+import java.util.Optional;
+import java.util.UUID;
+
+import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyString;
+import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.when;
+
+@ExtendWith(MockitoExtension.class)
+class ApplicationServiceTest {
+
+    private static final LocalDate APPLIED_DATE = LocalDate.of(2026, 10, 1);
+
+    @Mock
+    private JobApplicationRepository repository;
+
+    @InjectMocks
+    private ApplicationService service;
+
+    @Test
+    void createApplication_newCompanyAndRole_savesAndReturnsApplication() {
+        CreateApplicationRequest request = new CreateApplicationRequest(
+                "ACME Corp", "Backend Engineer", APPLIED_DATE, 5_000_000L, "EUR", "Referred by a friend");
+        when(repository.existsByCompanyIgnoreCaseAndRoleIgnoreCase("ACME Corp", "Backend Engineer")).thenReturn(false);
+        when(repository.saveAndFlush(any(JobApplication.class))).thenAnswer(invocation -> invocation.getArgument(0));
+
+        ApplicationResponse response = service.createApplication(request);
+
+        assertThat(response.id()).isNotNull();
+        assertThat(response.company()).isEqualTo("ACME Corp");
+        assertThat(response.role()).isEqualTo("Backend Engineer");
+        assertThat(response.status()).isEqualTo(ApplicationStatus.APPLIED);
+        assertThat(response.appliedDate()).isEqualTo(APPLIED_DATE);
+        assertThat(response.expectedSalaryCents()).isEqualTo(5_000_000L);
+        assertThat(response.salaryCurrency()).isEqualTo("EUR");
+        assertThat(response.notes()).isEqualTo("Referred by a friend");
+        verify(repository).saveAndFlush(any(JobApplication.class));
+    }
+
+    @Test
+    void createApplication_companyAndRoleWithSpaces_checksDuplicateWithTrimmedValues() {
+        CreateApplicationRequest request = new CreateApplicationRequest(
+                "  ACME Corp ", " Backend Engineer ", APPLIED_DATE, null, null, null);
+        when(repository.existsByCompanyIgnoreCaseAndRoleIgnoreCase("ACME Corp", "Backend Engineer")).thenReturn(false);
+        when(repository.saveAndFlush(any(JobApplication.class))).thenAnswer(invocation -> invocation.getArgument(0));
+
+        ApplicationResponse response = service.createApplication(request);
+
+        assertThat(response.company()).isEqualTo("ACME Corp");
+        assertThat(response.role()).isEqualTo("Backend Engineer");
+    }
+
+    @Test
+    void createApplication_sameCompanyAndRoleExists_throwsException() {
+        CreateApplicationRequest request = new CreateApplicationRequest(
+                "acme corp", "backend engineer", APPLIED_DATE, null, null, null);
+        when(repository.existsByCompanyIgnoreCaseAndRoleIgnoreCase("acme corp", "backend engineer")).thenReturn(true);
+
+        assertThatThrownBy(() -> service.createApplication(request))
+                .isInstanceOf(DuplicateApplicationException.class)
+                .hasMessage("Application for backend engineer at acme corp already exists");
+        verify(repository, never()).saveAndFlush(any(JobApplication.class));
+    }
+
+    @Test
+    void createApplication_invalidInput_throwsExceptionWithoutRepositoryCalls() {
+        CreateApplicationRequest request = new CreateApplicationRequest(
+                " ", "Backend Engineer", APPLIED_DATE, null, null, null);
+
+        assertThatThrownBy(() -> service.createApplication(request))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessage("company must not be blank");
+        verify(repository, never()).existsByCompanyIgnoreCaseAndRoleIgnoreCase(anyString(), anyString());
+        verify(repository, never()).saveAndFlush(any(JobApplication.class));
+    }
+
+    @Test
+    void getApplication_existingId_returnsApplication() {
+        JobApplication application = application("ACME Corp", "Backend Engineer");
+        when(repository.findById(application.getId())).thenReturn(Optional.of(application));
+
+        ApplicationResponse response = service.getApplication(application.getId());
+
+        assertThat(response.id()).isEqualTo(application.getId());
+        assertThat(response.company()).isEqualTo("ACME Corp");
+    }
+
+    @Test
+    void getApplication_unknownId_throwsException() {
+        UUID id = UUID.randomUUID();
+        when(repository.findById(id)).thenReturn(Optional.empty());
+
+        assertThatThrownBy(() -> service.getApplication(id))
+                .isInstanceOf(ApplicationNotFoundException.class)
+                .hasMessage("No application found with id: " + id);
+    }
+
+    @Test
+    void getAllApplications_twoApplications_returnsBoth() {
+        JobApplication first = application("ACME Corp", "Backend Engineer");
+        JobApplication second = application("Globex", "Java Developer");
+        when(repository.findAll()).thenReturn(List.of(first, second));
+
+        List<ApplicationResponse> responses = service.getAllApplications();
+
+        assertThat(responses)
+                .extracting(ApplicationResponse::id)
+                .containsExactly(first.getId(), second.getId());
+    }
+
+    @Test
+    void getAllApplications_noApplications_returnsEmptyList() {
+        when(repository.findAll()).thenReturn(List.of());
+
+        List<ApplicationResponse> responses = service.getAllApplications();
+
+        assertThat(responses).isEmpty();
+    }
+
+    @Test
+    void updateApplication_newCompany_savesNewDetails() {
+        JobApplication application = application("ACME Corp", "Backend Engineer");
+        UpdateApplicationRequest request = new UpdateApplicationRequest(
+                "Globex", "Backend Engineer", LocalDate.of(2026, 9, 15), 6_000_000L, "USD", "Second round");
+        when(repository.findById(application.getId())).thenReturn(Optional.of(application));
+        when(repository.existsByCompanyIgnoreCaseAndRoleIgnoreCase("Globex", "Backend Engineer")).thenReturn(false);
+        when(repository.saveAndFlush(application)).thenReturn(application);
+
+        ApplicationResponse response = service.updateApplication(application.getId(), request);
+
+        assertThat(response.company()).isEqualTo("Globex");
+        assertThat(response.role()).isEqualTo("Backend Engineer");
+        assertThat(response.appliedDate()).isEqualTo(LocalDate.of(2026, 9, 15));
+        assertThat(response.expectedSalaryCents()).isEqualTo(6_000_000L);
+        assertThat(response.salaryCurrency()).isEqualTo("USD");
+        assertThat(response.notes()).isEqualTo("Second round");
+        verify(repository).saveAndFlush(application);
+    }
+
+    @Test
+    void updateApplication_newRole_checksDuplicateAndSaves() {
+        JobApplication application = application("ACME Corp", "Backend Engineer");
+        UpdateApplicationRequest request = new UpdateApplicationRequest(
+                "ACME Corp", "Java Developer", APPLIED_DATE, null, null, null);
+        when(repository.findById(application.getId())).thenReturn(Optional.of(application));
+        when(repository.existsByCompanyIgnoreCaseAndRoleIgnoreCase("ACME Corp", "Java Developer")).thenReturn(false);
+        when(repository.saveAndFlush(application)).thenReturn(application);
+
+        ApplicationResponse response = service.updateApplication(application.getId(), request);
+
+        assertThat(response.role()).isEqualTo("Java Developer");
+        verify(repository).existsByCompanyIgnoreCaseAndRoleIgnoreCase("ACME Corp", "Java Developer");
+    }
+
+    @Test
+    void updateApplication_sameCompanyAndRoleInOtherCaseAndSpaces_skipsDuplicateCheck() {
+        JobApplication application = application("ACME Corp", "Backend Engineer");
+        UpdateApplicationRequest request = new UpdateApplicationRequest(
+                " acme corp ", "BACKEND ENGINEER", APPLIED_DATE, null, null, "Phone call booked");
+        when(repository.findById(application.getId())).thenReturn(Optional.of(application));
+        when(repository.saveAndFlush(application)).thenReturn(application);
+
+        ApplicationResponse response = service.updateApplication(application.getId(), request);
+
+        assertThat(response.company()).isEqualTo("acme corp");
+        assertThat(response.role()).isEqualTo("BACKEND ENGINEER");
+        assertThat(response.notes()).isEqualTo("Phone call booked");
+        verify(repository, never()).existsByCompanyIgnoreCaseAndRoleIgnoreCase(anyString(), anyString());
+    }
+
+    @Test
+    void updateApplication_companyAndRoleOfAnotherApplication_throwsExceptionAndKeepsDetails() {
+        JobApplication application = application("ACME Corp", "Backend Engineer");
+        UpdateApplicationRequest request = new UpdateApplicationRequest(
+                "Globex", "Java Developer", APPLIED_DATE, null, null, null);
+        when(repository.findById(application.getId())).thenReturn(Optional.of(application));
+        when(repository.existsByCompanyIgnoreCaseAndRoleIgnoreCase("Globex", "Java Developer")).thenReturn(true);
+
+        assertThatThrownBy(() -> service.updateApplication(application.getId(), request))
+                .isInstanceOf(DuplicateApplicationException.class)
+                .hasMessage("Application for Java Developer at Globex already exists");
+        assertThat(application.getCompany()).isEqualTo("ACME Corp");
+        assertThat(application.getRole()).isEqualTo("Backend Engineer");
+        verify(repository, never()).saveAndFlush(any(JobApplication.class));
+    }
+
+    @Test
+    void updateApplication_invalidInput_throwsExceptionWithoutSaving() {
+        JobApplication application = application("ACME Corp", "Backend Engineer");
+        UpdateApplicationRequest request = new UpdateApplicationRequest(
+                "ACME Corp", "Backend Engineer", APPLIED_DATE, 5_000_000L, null, null);
+        when(repository.findById(application.getId())).thenReturn(Optional.of(application));
+
+        assertThatThrownBy(() -> service.updateApplication(application.getId(), request))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessage("expectedSalaryCents and salaryCurrency must both be present or both be absent");
+        verify(repository, never()).saveAndFlush(any(JobApplication.class));
+    }
+
+    @Test
+    void updateApplication_unknownId_throwsException() {
+        UUID id = UUID.randomUUID();
+        UpdateApplicationRequest request = new UpdateApplicationRequest(
+                "Globex", "Java Developer", APPLIED_DATE, null, null, null);
+        when(repository.findById(id)).thenReturn(Optional.empty());
+
+        assertThatThrownBy(() -> service.updateApplication(id, request))
+                .isInstanceOf(ApplicationNotFoundException.class)
+                .hasMessage("No application found with id: " + id);
+        verify(repository, never()).saveAndFlush(any(JobApplication.class));
+    }
+
+    @Test
+    void changeStatus_allowedChange_savesNewStatus() {
+        JobApplication application = application("ACME Corp", "Backend Engineer");
+        when(repository.findById(application.getId())).thenReturn(Optional.of(application));
+        when(repository.saveAndFlush(application)).thenReturn(application);
+
+        ApplicationResponse response = service.changeStatus(
+                application.getId(), new ChangeStatusRequest(ApplicationStatus.INTERVIEWING));
+
+        assertThat(response.status()).isEqualTo(ApplicationStatus.INTERVIEWING);
+        verify(repository).saveAndFlush(application);
+    }
+
+    @Test
+    void changeStatus_fromAppliedToOffer_throwsExceptionWithoutSaving() {
+        JobApplication application = application("ACME Corp", "Backend Engineer");
+        when(repository.findById(application.getId())).thenReturn(Optional.of(application));
+
+        assertThatThrownBy(() -> service.changeStatus(
+                application.getId(), new ChangeStatusRequest(ApplicationStatus.OFFER)))
+                .isInstanceOf(InvalidApplicationStateException.class)
+                .hasMessage("Cannot move from APPLIED to OFFER");
+        assertThat(application.getStatus()).isEqualTo(ApplicationStatus.APPLIED);
+        verify(repository, never()).saveAndFlush(any(JobApplication.class));
+    }
+
+    @Test
+    void changeStatus_fromFinalStatus_throwsExceptionWithoutSaving() {
+        JobApplication application = application("ACME Corp", "Backend Engineer");
+        application.changeStatus(ApplicationStatus.REJECTED);
+        when(repository.findById(application.getId())).thenReturn(Optional.of(application));
+
+        assertThatThrownBy(() -> service.changeStatus(
+                application.getId(), new ChangeStatusRequest(ApplicationStatus.INTERVIEWING)))
+                .isInstanceOf(InvalidApplicationStateException.class)
+                .hasMessage("Cannot change status: application is already in final state REJECTED");
+        verify(repository, never()).saveAndFlush(any(JobApplication.class));
+    }
+
+    @Test
+    void changeStatus_nullStatus_throwsExceptionWithoutSaving() {
+        JobApplication application = application("ACME Corp", "Backend Engineer");
+        when(repository.findById(application.getId())).thenReturn(Optional.of(application));
+
+        assertThatThrownBy(() -> service.changeStatus(application.getId(), new ChangeStatusRequest(null)))
+                .isInstanceOf(InvalidApplicationStateException.class)
+                .hasMessage("new status must not be null");
+        verify(repository, never()).saveAndFlush(any(JobApplication.class));
+    }
+
+    @Test
+    void changeStatus_unknownId_throwsException() {
+        UUID id = UUID.randomUUID();
+        when(repository.findById(id)).thenReturn(Optional.empty());
+
+        assertThatThrownBy(() -> service.changeStatus(id, new ChangeStatusRequest(ApplicationStatus.INTERVIEWING)))
+                .isInstanceOf(ApplicationNotFoundException.class)
+                .hasMessage("No application found with id: " + id);
+    }
+
+    @Test
+    void deleteApplication_existingId_deletesApplication() {
+        JobApplication application = application("ACME Corp", "Backend Engineer");
+        when(repository.findById(application.getId())).thenReturn(Optional.of(application));
+
+        service.deleteApplication(application.getId());
+
+        verify(repository).delete(application);
+    }
+
+    @Test
+    void deleteApplication_unknownId_throwsException() {
+        UUID id = UUID.randomUUID();
+        when(repository.findById(id)).thenReturn(Optional.empty());
+
+        assertThatThrownBy(() -> service.deleteApplication(id))
+                .isInstanceOf(ApplicationNotFoundException.class)
+                .hasMessage("No application found with id: " + id);
+        verify(repository, never()).delete(any(JobApplication.class));
+    }
+
+    private static JobApplication application(String company, String role) {
+        return new JobApplication(company, role, APPLIED_DATE, null, null, null);
+    }
+}
