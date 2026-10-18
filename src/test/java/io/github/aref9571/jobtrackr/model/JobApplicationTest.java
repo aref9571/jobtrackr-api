@@ -8,6 +8,7 @@ import org.junit.jupiter.params.provider.NullAndEmptySource;
 import org.junit.jupiter.params.provider.ValueSource;
 
 import java.time.LocalDate;
+import java.util.UUID;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
@@ -287,6 +288,81 @@ class JobApplicationTest {
                 .isInstanceOf(InvalidApplicationStateException.class)
                 .hasMessage("new status must not be null");
         assertThat(application.getStatus()).isEqualTo(ApplicationStatus.APPLIED);
+    }
+
+    @Test
+    void updateDetails_validValues_replacesDetails() {
+        JobApplication application = new JobApplication(
+                "ACME Corp", "Backend Engineer", APPLIED_DATE, 5_000_000L, "EUR", "Referred by a friend");
+
+        application.updateDetails(" Globex ", " Java Developer ", LocalDate.of(2026, 9, 15), 6_000_000L, "USD", "Second round");
+
+        assertThat(application.getCompany()).isEqualTo("Globex");
+        assertThat(application.getRole()).isEqualTo("Java Developer");
+        assertThat(application.getAppliedDate()).isEqualTo(LocalDate.of(2026, 9, 15));
+        assertThat(application.getExpectedSalaryCents()).isEqualTo(6_000_000L);
+        assertThat(application.getSalaryCurrency()).isEqualTo("USD");
+        assertThat(application.getNotes()).isEqualTo("Second round");
+    }
+
+    @Test
+    void updateDetails_optionalFieldsAbsent_clearsOptionalFields() {
+        JobApplication application = new JobApplication(
+                "ACME Corp", "Backend Engineer", APPLIED_DATE, 5_000_000L, "EUR", "Referred by a friend");
+
+        application.updateDetails("ACME Corp", "Backend Engineer", APPLIED_DATE, null, null, null);
+
+        assertThat(application.getExpectedSalaryCents()).isNull();
+        assertThat(application.getSalaryCurrency()).isNull();
+        assertThat(application.getNotes()).isNull();
+    }
+
+    @Test
+    void updateDetails_keepsIdAndStatus() {
+        JobApplication application = interviewingApplication();
+        UUID id = application.getId();
+
+        application.updateDetails("Globex", "Java Developer", APPLIED_DATE, null, null, null);
+
+        assertThat(application.getId()).isEqualTo(id);
+        assertThat(application.getStatus()).isEqualTo(ApplicationStatus.INTERVIEWING);
+    }
+
+    @Test
+    void updateDetails_invalidSalary_throwsExceptionAndKeepsOldDetails() {
+        JobApplication application = new JobApplication(
+                "ACME Corp", "Backend Engineer", APPLIED_DATE, 5_000_000L, "EUR", "Referred by a friend");
+
+        assertThatThrownBy(() -> application.updateDetails(
+                "Globex", "Java Developer", APPLIED_DATE, -1L, "USD", "Second round"))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessage("expectedSalaryCents must not be negative");
+        assertThat(application.getCompany()).isEqualTo("ACME Corp");
+        assertThat(application.getRole()).isEqualTo("Backend Engineer");
+        assertThat(application.getExpectedSalaryCents()).isEqualTo(5_000_000L);
+        assertThat(application.getSalaryCurrency()).isEqualTo("EUR");
+        assertThat(application.getNotes()).isEqualTo("Referred by a friend");
+    }
+
+    @Test
+    void updateDetails_blankCompany_throwsException() {
+        JobApplication application = applicationWithCompany("ACME Corp");
+
+        assertThatThrownBy(() -> application.updateDetails(" ", "Backend Engineer", APPLIED_DATE, null, null, null))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessage("company must not be blank");
+        assertThat(application.getCompany()).isEqualTo("ACME Corp");
+    }
+
+    @Test
+    void updateDetails_appliedDateInFuture_throwsException() {
+        JobApplication application = applicationWithCompany("ACME Corp");
+        LocalDate tomorrow = LocalDate.now().plusDays(1);
+
+        assertThatThrownBy(() -> application.updateDetails("ACME Corp", "Backend Engineer", tomorrow, null, null, null))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessage("appliedDate must not be in the future");
+        assertThat(application.getAppliedDate()).isEqualTo(APPLIED_DATE);
     }
 
     private static JobApplication applicationWithCompany(String company) {

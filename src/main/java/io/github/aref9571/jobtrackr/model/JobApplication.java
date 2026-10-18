@@ -66,14 +66,17 @@ public class JobApplication {
                           String salaryCurrency,
                           String notes) {
         this.id = UUID.randomUUID();
-        this.company = requireText(company, "company", MAX_COMPANY_LENGTH);
-        this.role = requireText(role, "role", MAX_ROLE_LENGTH);
         this.status = ApplicationStatus.APPLIED;
-        this.appliedDate = requireValidAppliedDate(appliedDate);
-        validateSalary(expectedSalaryCents, salaryCurrency);
-        this.expectedSalaryCents = expectedSalaryCents;
-        this.salaryCurrency = salaryCurrency;
-        this.notes = requireValidNotes(notes);
+        setDetails(company, role, appliedDate, expectedSalaryCents, salaryCurrency, notes);
+    }
+
+    public void updateDetails(String company,
+                              String role,
+                              LocalDate appliedDate,
+                              Long expectedSalaryCents,
+                              String salaryCurrency,
+                              String notes) {
+        setDetails(company, role, appliedDate, expectedSalaryCents, salaryCurrency, notes);
     }
 
     public void changeStatus(ApplicationStatus newStatus) {
@@ -139,6 +142,26 @@ public class JobApplication {
 
     public Instant getUpdatedAt() {
         return updatedAt;
+    }
+
+    private void setDetails(String company,
+                            String role,
+                            LocalDate appliedDate,
+                            Long expectedSalaryCents,
+                            String salaryCurrency,
+                            String notes) {
+        String validCompany = requireText(company, "company", MAX_COMPANY_LENGTH);
+        String validRole = requireText(role, "role", MAX_ROLE_LENGTH);
+        LocalDate validAppliedDate = requireValidAppliedDate(appliedDate);
+        validateSalary(expectedSalaryCents, salaryCurrency);
+        String validNotes = requireValidNotes(notes);
+
+        this.company = validCompany;
+        this.role = validRole;
+        this.appliedDate = validAppliedDate;
+        this.expectedSalaryCents = expectedSalaryCents;
+        this.salaryCurrency = salaryCurrency;
+        this.notes = validNotes;
     }
 
     private static String requireText(String value, String fieldName, int maxLength) {
