@@ -1,6 +1,6 @@
 # JobTrackr API
 
-JobTrackr API is a Spring Boot REST API for tracking job applications. It is being built step by step from the JobTrackr domain in [java-foundations](https://github.com/aref9571/java-foundations). At this stage the project contains the job application domain model, its PostgreSQL table managed by Flyway, a Spring Data repository, a health check endpoint and a continuous integration build. The job application endpoints are not implemented yet.
+JobTrackr API is a Spring Boot REST API for tracking job applications. It is being built step by step from the JobTrackr domain in [java-foundations](https://github.com/aref9571/java-foundations). At this stage the project contains the job application domain model, its PostgreSQL table managed by Flyway, a Spring Data repository, a service layer with the application use cases, a health check endpoint and a continuous integration build. The job application endpoints are not implemented yet.
 
 ## Tech stack
 
@@ -8,7 +8,7 @@ JobTrackr API is a Spring Boot REST API for tracking job applications. It is bei
 - Spring Boot 4.1.1 (Spring Web MVC, Validation, Actuator, Spring Data JPA)
 - PostgreSQL 17 with Flyway migrations
 - Maven with the Maven Wrapper
-- JUnit 5 and Testcontainers
+- JUnit 5, Mockito and Testcontainers
 - Docker Compose for the local database
 - GitHub Actions
 
@@ -70,4 +70,4 @@ Stop the database with `docker compose down`. Add `-v` to delete its data volume
 ./mvnw --batch-mode clean verify
 ```
 
-The repository and application tests start a PostgreSQL 17 container with Testcontainers, so Docker must be running. The same command runs in GitHub Actions on every push.
+The repository and application tests start a PostgreSQL 17 container with Testcontainers, so Docker must be running. The service tests use Mockito and run without a database. The same command runs in GitHub Actions on every push.
