@@ -5,6 +5,7 @@ import io.github.aref9571.jobtrackr.dto.ChangeStatusRequest;
 import io.github.aref9571.jobtrackr.dto.CreateApplicationRequest;
 import io.github.aref9571.jobtrackr.dto.UpdateApplicationRequest;
 import io.github.aref9571.jobtrackr.service.ApplicationService;
+import jakarta.validation.Valid;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.DeleteMapping;
@@ -34,7 +35,8 @@ public class ApplicationController {
     }
 
     @PostMapping
-    public ResponseEntity<ApplicationResponse> createApplication(@RequestBody CreateApplicationRequest request) {
+    public ResponseEntity<ApplicationResponse> createApplication(
+            @Valid @RequestBody CreateApplicationRequest request) {
         ApplicationResponse response = applicationService.createApplication(request);
         URI location = ServletUriComponentsBuilder.fromCurrentRequest()
                 .path("/{id}")
@@ -55,12 +57,12 @@ public class ApplicationController {
 
     @PutMapping("/{id}")
     public ApplicationResponse updateApplication(@PathVariable UUID id,
-                                                 @RequestBody UpdateApplicationRequest request) {
+                                                 @Valid @RequestBody UpdateApplicationRequest request) {
         return applicationService.updateApplication(id, request);
     }
 
     @PatchMapping("/{id}/status")
-    public ApplicationResponse changeStatus(@PathVariable UUID id, @RequestBody ChangeStatusRequest request) {
+    public ApplicationResponse changeStatus(@PathVariable UUID id, @Valid @RequestBody ChangeStatusRequest request) {
         return applicationService.changeStatus(id, request);
     }
 
