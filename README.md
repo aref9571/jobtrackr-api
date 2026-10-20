@@ -70,12 +70,12 @@ All examples assume the application is running on port 8080. Replace `{id}` with
 
 | Method | Path | Success | Errors |
 |---|---|---|---|
-| `POST` | `/api/applications` | 201 with a `Location` header | 409 duplicate |
+| `POST` | `/api/applications` | 201 with a `Location` header | 400, 409 duplicate |
 | `GET` | `/api/applications` | 200 | |
-| `GET` | `/api/applications/{id}` | 200 | 404 |
-| `PUT` | `/api/applications/{id}` | 200 | 404, 409 duplicate |
-| `PATCH` | `/api/applications/{id}/status` | 200 | 404, 409 status change not allowed |
-| `DELETE` | `/api/applications/{id}` | 204 | 404 |
+| `GET` | `/api/applications/{id}` | 200 | 400, 404 |
+| `PUT` | `/api/applications/{id}` | 200 | 400, 404, 409 duplicate |
+| `PATCH` | `/api/applications/{id}/status` | 200 | 400, 404, 409 status change not allowed |
+| `DELETE` | `/api/applications/{id}` | 204 | 400, 404 |
 
 Create an application:
 
@@ -92,6 +92,28 @@ The response is `201 Created` with a `Location` header and the new application:
 ```
 
 `expectedSalaryCents` and `salaryCurrency` are optional, but must be given together.
+
+| Field | Rules |
+|---|---|
+| `company`, `role` | required, not blank, at most 100 characters |
+| `appliedDate` | required, today or earlier |
+| `expectedSalaryCents` | optional, 0 or more |
+| `salaryCurrency` | optional, ISO 4217 code in upper case, for example `EUR` |
+| `notes` | optional, at most 1000 characters |
+
+Invalid input returns `400 Bad Request` with an `errors` object that maps each invalid field to its message:
+
+```bash
+curl -i -X POST http://localhost:8080/api/applications \
+  -H "Content-Type: application/json" \
+  -d '{"company":"  ","role":"Backend Engineer","appliedDate":"2026-10-01","expectedSalaryCents":5000000,"salaryCurrency":"eur"}'
+```
+
+```json
+{"detail":"Request validation failed","instance":"/api/applications","status":400,"title":"Bad Request","errors":{"company":"must not be blank","salaryCurrency":"must be a three-letter upper-case currency code"}}
+```
+
+Malformed JSON, an unknown status value and an `id` that is not a UUID also return `400 Bad Request`.
 
 Get one application, or list all of them:
 
