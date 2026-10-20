@@ -21,9 +21,12 @@ import java.time.LocalDate;
 import java.util.List;
 import java.util.UUID;
 
+import static org.hamcrest.Matchers.containsString;
 import static org.hamcrest.Matchers.hasSize;
+import static org.hamcrest.Matchers.not;
 import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.delete;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
@@ -105,6 +108,158 @@ class ApplicationControllerTest {
     }
 
     @Test
+    void createApplication_blankCompany_returns400WithFieldError() throws Exception {
+        mockMvc.perform(post("/api/applications")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(APPLICATION_JSON.replace("\"ACME Corp\"", "\"  \"")))
+                .andExpect(status().isBadRequest())
+                .andExpect(content().contentType(MediaType.APPLICATION_PROBLEM_JSON))
+                .andExpect(jsonPath("$.status").value(400))
+                .andExpect(jsonPath("$.title").value("Bad Request"))
+                .andExpect(jsonPath("$.detail").value("Request validation failed"))
+                .andExpect(jsonPath("$.instance").value("/api/applications"))
+                .andExpect(jsonPath("$.errors.company").value("must not be blank"));
+
+        verifyNoInteractions(applicationService);
+    }
+
+    @Test
+    void createApplication_emptyBody_returns400WithAllRequiredFields() throws Exception {
+        mockMvc.perform(post("/api/applications")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{}"))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.errors.company").value("must not be blank"))
+                .andExpect(jsonPath("$.errors.role").value("must not be blank"))
+                .andExpect(jsonPath("$.errors.appliedDate").value("must not be null"));
+
+        verifyNoInteractions(applicationService);
+    }
+
+    @Test
+    void createApplication_tooLongValues_returns400WithFieldErrors() throws Exception {
+        String json = """
+                {
+                  "company": "%s",
+                  "role": "%s",
+                  "appliedDate": "2026-10-01",
+                  "notes": "%s"
+                }
+                """.formatted("c".repeat(101), "r".repeat(101), "n".repeat(1001));
+
+        mockMvc.perform(post("/api/applications")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(json))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.errors.company").value("size must be between 0 and 100"))
+                .andExpect(jsonPath("$.errors.role").value("size must be between 0 and 100"))
+                .andExpect(jsonPath("$.errors.notes").value("size must be between 0 and 1000"));
+
+        verifyNoInteractions(applicationService);
+    }
+
+    @Test
+    void createApplication_futureAppliedDate_returns400WithFieldError() throws Exception {
+        String tomorrow = LocalDate.now().plusDays(1).toString();
+
+        mockMvc.perform(post("/api/applications")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(APPLICATION_JSON.replace("2026-10-01", tomorrow)))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.errors.appliedDate").value("must be a date in the past or in the present"));
+
+        verifyNoInteractions(applicationService);
+    }
+
+    @Test
+    void createApplication_negativeSalary_returns400WithFieldError() throws Exception {
+        mockMvc.perform(post("/api/applications")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(APPLICATION_JSON.replace("5000000", "-1")))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.errors.expectedSalaryCents").value("must be greater than or equal to 0"));
+
+        verifyNoInteractions(applicationService);
+    }
+
+    @Test
+    void createApplication_salaryWithoutCurrency_returns400WithFieldError() throws Exception {
+        String json = """
+                {"company": "ACME Corp", "role": "Backend Engineer", "appliedDate": "2026-10-01",
+                 "expectedSalaryCents": 5000000}
+                """;
+
+        mockMvc.perform(post("/api/applications")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(json))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.errors.salaryConsistent")
+                        .value("expectedSalaryCents and salaryCurrency must both be present or both be absent"));
+
+        verifyNoInteractions(applicationService);
+    }
+
+    @Test
+    void createApplication_currencyWithoutSalary_returns400WithFieldError() throws Exception {
+        String json = """
+                {"company": "ACME Corp", "role": "Backend Engineer", "appliedDate": "2026-10-01",
+                 "salaryCurrency": "EUR"}
+                """;
+
+        mockMvc.perform(post("/api/applications")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(json))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.errors.salaryConsistent")
+                        .value("expectedSalaryCents and salaryCurrency must both be present or both be absent"));
+
+        verifyNoInteractions(applicationService);
+    }
+
+    @Test
+    void createApplication_lowerCaseCurrency_returns400WithFieldError() throws Exception {
+        mockMvc.perform(post("/api/applications")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(APPLICATION_JSON.replace("\"EUR\"", "\"eur\"")))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.errors.salaryCurrency")
+                        .value("must be a three-letter upper-case currency code"));
+
+        verifyNoInteractions(applicationService);
+    }
+
+    @Test
+    void createApplication_unknownCurrencyCode_returns400ProblemDetail() throws Exception {
+        String message = "salaryCurrency must be a three-letter upper-case ISO 4217 code";
+        when(applicationService.createApplication(new CreateApplicationRequest(
+                "ACME Corp", "Backend Engineer", APPLIED_DATE, 5_000_000L, "XYZ", "Referred by a friend")))
+                .thenThrow(new IllegalArgumentException(message));
+
+        mockMvc.perform(post("/api/applications")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(APPLICATION_JSON.replace("\"EUR\"", "\"XYZ\"")))
+                .andExpect(status().isBadRequest())
+                .andExpect(content().contentType(MediaType.APPLICATION_PROBLEM_JSON))
+                .andExpect(jsonPath("$.status").value(400))
+                .andExpect(jsonPath("$.detail").value(message));
+    }
+
+    @Test
+    void createApplication_malformedJson_returns400ProblemDetail() throws Exception {
+        mockMvc.perform(post("/api/applications")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"company\": \"ACME Corp\","))
+                .andExpect(status().isBadRequest())
+                .andExpect(content().contentType(MediaType.APPLICATION_PROBLEM_JSON))
+                .andExpect(jsonPath("$.status").value(400))
+                .andExpect(jsonPath("$.title").value("Bad Request"))
+                .andExpect(jsonPath("$.detail").value("Failed to read request"))
+                .andExpect(content().string(not(containsString("Exception"))));
+
+        verifyNoInteractions(applicationService);
+    }
+
+    @Test
     void getApplication_existingId_returns200WithApplication() throws Exception {
         when(applicationService.getApplication(ID)).thenReturn(response(ApplicationStatus.INTERVIEWING));
 
@@ -127,6 +282,19 @@ class ApplicationControllerTest {
                 .andExpect(jsonPath("$.title").value("Not Found"))
                 .andExpect(jsonPath("$.detail").value(message))
                 .andExpect(jsonPath("$.instance").value("/api/applications/" + ID));
+    }
+
+    @Test
+    void getApplication_invalidUuid_returns400ProblemDetail() throws Exception {
+        mockMvc.perform(get("/api/applications/not-a-uuid"))
+                .andExpect(status().isBadRequest())
+                .andExpect(content().contentType(MediaType.APPLICATION_PROBLEM_JSON))
+                .andExpect(jsonPath("$.status").value(400))
+                .andExpect(jsonPath("$.detail").value("Failed to convert 'id' with value: 'not-a-uuid'"))
+                .andExpect(jsonPath("$.instance").value("/api/applications/not-a-uuid"))
+                .andExpect(content().string(not(containsString("Exception"))));
+
+        verifyNoInteractions(applicationService);
     }
 
     @Test
@@ -196,6 +364,25 @@ class ApplicationControllerTest {
     }
 
     @Test
+    void updateApplication_invalidRequest_returns400WithFieldErrors() throws Exception {
+        String json = """
+                {"company": "", "role": "Backend Engineer", "appliedDate": "2026-10-01",
+                 "expectedSalaryCents": 5000000, "salaryCurrency": "euro"}
+                """;
+
+        mockMvc.perform(put("/api/applications/{id}", ID)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(json))
+                .andExpect(status().isBadRequest())
+                .andExpect(content().contentType(MediaType.APPLICATION_PROBLEM_JSON))
+                .andExpect(jsonPath("$.errors.company").value("must not be blank"))
+                .andExpect(jsonPath("$.errors.salaryCurrency")
+                        .value("must be a three-letter upper-case currency code"));
+
+        verifyNoInteractions(applicationService);
+    }
+
+    @Test
     void changeStatus_allowedChange_returns200WithNewStatus() throws Exception {
         ChangeStatusRequest request = new ChangeStatusRequest(ApplicationStatus.INTERVIEWING);
         when(applicationService.changeStatus(ID, request)).thenReturn(response(ApplicationStatus.INTERVIEWING));
@@ -244,6 +431,33 @@ class ApplicationControllerTest {
                 .andExpect(status().isNotFound())
                 .andExpect(content().contentType(MediaType.APPLICATION_PROBLEM_JSON))
                 .andExpect(jsonPath("$.detail").value(message));
+    }
+
+    @Test
+    void changeStatus_unknownStatus_returns400ProblemDetail() throws Exception {
+        mockMvc.perform(patch("/api/applications/{id}/status", ID)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {"status": "HIRED"}
+                                """))
+                .andExpect(status().isBadRequest())
+                .andExpect(content().contentType(MediaType.APPLICATION_PROBLEM_JSON))
+                .andExpect(jsonPath("$.status").value(400))
+                .andExpect(jsonPath("$.detail").value("Failed to read request"))
+                .andExpect(content().string(not(containsString("ApplicationStatus"))));
+
+        verifyNoInteractions(applicationService);
+    }
+
+    @Test
+    void changeStatus_missingStatus_returns400WithFieldError() throws Exception {
+        mockMvc.perform(patch("/api/applications/{id}/status", ID)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{}"))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.errors.status").value("must not be null"));
+
+        verifyNoInteractions(applicationService);
     }
 
     @Test
