@@ -12,6 +12,7 @@ import io.github.aref9571.jobtrackr.service.ApplicationService;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.webmvc.test.autoconfigure.WebMvcTest;
+import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.http.MediaType;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.test.web.servlet.MockMvc;
@@ -295,6 +296,37 @@ class ApplicationControllerTest {
                 .andExpect(content().string(not(containsString("Exception"))));
 
         verifyNoInteractions(applicationService);
+    }
+
+    @Test
+    void createApplication_uniqueIndexViolation_returns409ProblemDetail() throws Exception {
+        when(applicationService.createApplication(new CreateApplicationRequest(
+                "ACME Corp", "Backend Engineer", APPLIED_DATE, 5_000_000L, "EUR", "Referred by a friend")))
+                .thenThrow(new DataIntegrityViolationException("duplicate key value violates unique constraint"));
+
+        mockMvc.perform(post("/api/applications")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(APPLICATION_JSON))
+                .andExpect(status().isConflict())
+                .andExpect(content().contentType(MediaType.APPLICATION_PROBLEM_JSON))
+                .andExpect(jsonPath("$.status").value(409))
+                .andExpect(jsonPath("$.detail").value("Request conflicts with existing data"))
+                .andExpect(content().string(not(containsString("unique constraint"))));
+    }
+
+    @Test
+    void getApplication_unexpectedError_returns500WithoutInternalDetails() throws Exception {
+        when(applicationService.getApplication(ID))
+                .thenThrow(new IllegalStateException("connection to jdbc:postgresql://db failed"));
+
+        mockMvc.perform(get("/api/applications/{id}", ID))
+                .andExpect(status().isInternalServerError())
+                .andExpect(content().contentType(MediaType.APPLICATION_PROBLEM_JSON))
+                .andExpect(jsonPath("$.status").value(500))
+                .andExpect(jsonPath("$.title").value("Internal Server Error"))
+                .andExpect(jsonPath("$.detail").value("An unexpected error occurred"))
+                .andExpect(content().string(not(containsString("postgresql"))))
+                .andExpect(content().string(not(containsString("Exception"))));
     }
 
     @Test

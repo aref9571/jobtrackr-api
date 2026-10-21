@@ -115,6 +115,8 @@ curl -i -X POST http://localhost:8080/api/applications \
 
 Malformed JSON, an unknown status value and an `id` that is not a UUID also return `400 Bad Request`.
 
+An unexpected server error returns `500 Internal Server Error` with the detail "An unexpected error occurred". The cause is written to the application log, never to the response.
+
 Get one application, or list all of them:
 
 ```bash
