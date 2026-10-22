@@ -1,8 +1,10 @@
 package io.github.aref9571.jobtrackr.service;
 
 import io.github.aref9571.jobtrackr.dto.ApplicationResponse;
+import io.github.aref9571.jobtrackr.dto.ApplicationSearchCriteria;
 import io.github.aref9571.jobtrackr.dto.ChangeStatusRequest;
 import io.github.aref9571.jobtrackr.dto.CreateApplicationRequest;
+import io.github.aref9571.jobtrackr.dto.PageResponse;
 import io.github.aref9571.jobtrackr.dto.UpdateApplicationRequest;
 import io.github.aref9571.jobtrackr.exception.ApplicationNotFoundException;
 import io.github.aref9571.jobtrackr.exception.DuplicateApplicationException;
@@ -15,6 +17,10 @@ import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
+import org.springframework.data.domain.PageImpl;
+import org.springframework.data.domain.PageRequest;
+import org.springframework.data.domain.Pageable;
+import org.springframework.data.jpa.domain.Specification;
 
 import java.time.LocalDate;
 import java.util.List;
@@ -33,6 +39,7 @@ import static org.mockito.Mockito.when;
 class ApplicationServiceTest {
 
     private static final LocalDate APPLIED_DATE = LocalDate.of(2026, 10, 1);
+    private static final ApplicationSearchCriteria NO_FILTERS = new ApplicationSearchCriteria(null, null, null, null);
 
     @Mock
     private JobApplicationRepository repository;
@@ -119,25 +126,35 @@ class ApplicationServiceTest {
     }
 
     @Test
-    void getAllApplications_twoApplications_returnsBoth() {
+    void searchApplications_twoApplications_returnsPageWithBoth() {
         JobApplication first = application("ACME Corp", "Backend Engineer");
         JobApplication second = application("Globex", "Java Developer");
-        when(repository.findAll()).thenReturn(List.of(first, second));
+        Pageable pageable = PageRequest.of(0, 20);
+        when(repository.findAll(any(Specification.class), any(Pageable.class)))
+                .thenReturn(new PageImpl<>(List.of(first, second), pageable, 2));
 
-        List<ApplicationResponse> responses = service.getAllApplications();
+        PageResponse<ApplicationResponse> response = service.searchApplications(NO_FILTERS, pageable);
 
-        assertThat(responses)
+        assertThat(response.content())
                 .extracting(ApplicationResponse::id)
                 .containsExactly(first.getId(), second.getId());
+        assertThat(response.page()).isZero();
+        assertThat(response.size()).isEqualTo(20);
+        assertThat(response.totalElements()).isEqualTo(2);
+        assertThat(response.totalPages()).isEqualTo(1);
     }
 
     @Test
-    void getAllApplications_noApplications_returnsEmptyList() {
-        when(repository.findAll()).thenReturn(List.of());
+    void searchApplications_noApplications_returnsEmptyPage() {
+        Pageable pageable = PageRequest.of(0, 20);
+        when(repository.findAll(any(Specification.class), any(Pageable.class)))
+                .thenReturn(new PageImpl<>(List.of(), pageable, 0));
 
-        List<ApplicationResponse> responses = service.getAllApplications();
+        PageResponse<ApplicationResponse> response = service.searchApplications(NO_FILTERS, pageable);
 
-        assertThat(responses).isEmpty();
+        assertThat(response.content()).isEmpty();
+        assertThat(response.totalElements()).isZero();
+        assertThat(response.totalPages()).isZero();
     }
 
     @Test

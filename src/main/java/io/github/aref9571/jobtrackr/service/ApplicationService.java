@@ -1,17 +1,24 @@
 package io.github.aref9571.jobtrackr.service;
 
 import io.github.aref9571.jobtrackr.dto.ApplicationResponse;
+import io.github.aref9571.jobtrackr.dto.ApplicationSearchCriteria;
 import io.github.aref9571.jobtrackr.dto.ChangeStatusRequest;
 import io.github.aref9571.jobtrackr.dto.CreateApplicationRequest;
+import io.github.aref9571.jobtrackr.dto.PageResponse;
 import io.github.aref9571.jobtrackr.dto.UpdateApplicationRequest;
 import io.github.aref9571.jobtrackr.exception.ApplicationNotFoundException;
 import io.github.aref9571.jobtrackr.exception.DuplicateApplicationException;
 import io.github.aref9571.jobtrackr.model.JobApplication;
 import io.github.aref9571.jobtrackr.repository.JobApplicationRepository;
+import io.github.aref9571.jobtrackr.repository.JobApplicationSpecifications;
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.PageRequest;
+import org.springframework.data.domain.Pageable;
+import org.springframework.data.domain.Sort;
+import org.springframework.data.jpa.domain.Specification;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
-import java.util.List;
 import java.util.UUID;
 
 @Service
@@ -42,10 +49,15 @@ public class ApplicationService {
     }
 
     @Transactional(readOnly = true)
-    public List<ApplicationResponse> getAllApplications() {
-        return repository.findAll().stream()
-                .map(ApplicationResponse::from)
-                .toList();
+    public PageResponse<ApplicationResponse> searchApplications(ApplicationSearchCriteria criteria, Pageable pageable) {
+        Specification<JobApplication> specification = Specification.allOf(
+                JobApplicationSpecifications.hasStatus(criteria.status()),
+                JobApplicationSpecifications.companyContains(criteria.company()),
+                JobApplicationSpecifications.appliedOnOrAfter(criteria.appliedFrom()),
+                JobApplicationSpecifications.appliedOnOrBefore(criteria.appliedTo()));
+        Page<ApplicationResponse> page = repository.findAll(specification, withIdTieBreaker(pageable))
+                .map(ApplicationResponse::from);
+        return PageResponse.from(page);
     }
 
     @Transactional
@@ -88,6 +100,11 @@ public class ApplicationService {
         if (repository.existsByCompanyIgnoreCaseAndRoleIgnoreCase(company, role)) {
             throw new DuplicateApplicationException("Application for " + role + " at " + company + " already exists");
         }
+    }
+
+    private static Pageable withIdTieBreaker(Pageable pageable) {
+        Sort sort = pageable.getSort().and(Sort.by("id"));
+        return PageRequest.of(pageable.getPageNumber(), pageable.getPageSize(), sort);
     }
 
     private static boolean hasCompanyAndRole(JobApplication application, String company, String role) {

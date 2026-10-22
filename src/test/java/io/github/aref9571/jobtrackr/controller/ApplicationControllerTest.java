@@ -1,8 +1,10 @@
 package io.github.aref9571.jobtrackr.controller;
 
 import io.github.aref9571.jobtrackr.dto.ApplicationResponse;
+import io.github.aref9571.jobtrackr.dto.ApplicationSearchCriteria;
 import io.github.aref9571.jobtrackr.dto.ChangeStatusRequest;
 import io.github.aref9571.jobtrackr.dto.CreateApplicationRequest;
+import io.github.aref9571.jobtrackr.dto.PageResponse;
 import io.github.aref9571.jobtrackr.dto.UpdateApplicationRequest;
 import io.github.aref9571.jobtrackr.exception.ApplicationNotFoundException;
 import io.github.aref9571.jobtrackr.exception.DuplicateApplicationException;
@@ -13,6 +15,7 @@ import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.webmvc.test.autoconfigure.WebMvcTest;
 import org.springframework.dao.DataIntegrityViolationException;
+import org.springframework.data.domain.Pageable;
 import org.springframework.http.MediaType;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.test.web.servlet.MockMvc;
@@ -25,6 +28,7 @@ import java.util.UUID;
 import static org.hamcrest.Matchers.containsString;
 import static org.hamcrest.Matchers.hasSize;
 import static org.hamcrest.Matchers.not;
+import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
@@ -330,23 +334,31 @@ class ApplicationControllerTest {
     }
 
     @Test
-    void getAllApplications_applicationsExist_returns200WithList() throws Exception {
-        when(applicationService.getAllApplications()).thenReturn(List.of(response(ApplicationStatus.APPLIED)));
+    void searchApplications_applicationsExist_returns200WithPage() throws Exception {
+        when(applicationService.searchApplications(any(ApplicationSearchCriteria.class), any(Pageable.class)))
+                .thenReturn(new PageResponse<>(List.of(response(ApplicationStatus.APPLIED)), 0, 20, 1, 1));
 
         mockMvc.perform(get("/api/applications"))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$", hasSize(1)))
-                .andExpect(jsonPath("$[0].id").value(ID.toString()))
-                .andExpect(jsonPath("$[0].company").value("ACME Corp"));
+                .andExpect(jsonPath("$.content", hasSize(1)))
+                .andExpect(jsonPath("$.content[0].id").value(ID.toString()))
+                .andExpect(jsonPath("$.content[0].company").value("ACME Corp"))
+                .andExpect(jsonPath("$.page").value(0))
+                .andExpect(jsonPath("$.size").value(20))
+                .andExpect(jsonPath("$.totalElements").value(1))
+                .andExpect(jsonPath("$.totalPages").value(1));
     }
 
     @Test
-    void getAllApplications_noApplications_returns200WithEmptyList() throws Exception {
-        when(applicationService.getAllApplications()).thenReturn(List.of());
+    void searchApplications_noApplications_returns200WithEmptyPage() throws Exception {
+        when(applicationService.searchApplications(any(ApplicationSearchCriteria.class), any(Pageable.class)))
+                .thenReturn(new PageResponse<>(List.of(), 0, 20, 0, 0));
 
         mockMvc.perform(get("/api/applications"))
                 .andExpect(status().isOk())
-                .andExpect(content().json("[]"));
+                .andExpect(content().json("""
+                        {"content": [], "page": 0, "size": 20, "totalElements": 0, "totalPages": 0}
+                        """));
     }
 
     @Test

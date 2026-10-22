@@ -39,6 +39,11 @@ public class GlobalExceptionHandler extends ResponseEntityExceptionHandler {
         return ProblemDetail.forStatusAndDetail(HttpStatus.CONFLICT, "Request conflicts with existing data");
     }
 
+    @ExceptionHandler(InvalidSearchParameterException.class)
+    public ProblemDetail handleInvalidSearchParameter(InvalidSearchParameterException exception) {
+        return ProblemDetail.forStatusAndDetail(HttpStatus.BAD_REQUEST, exception.getMessage());
+    }
+
     @ExceptionHandler(IllegalArgumentException.class)
     public ProblemDetail handleInvalidArgument(IllegalArgumentException exception) {
         return ProblemDetail.forStatusAndDetail(HttpStatus.BAD_REQUEST, exception.getMessage());
