@@ -1,6 +1,6 @@
 # JobTrackr API
 
-JobTrackr API is a Spring Boot REST API for tracking job applications. It is being built step by step from the JobTrackr domain in [java-foundations](https://github.com/aref9571/java-foundations). At this stage the project contains the job application domain model, its PostgreSQL table managed by Flyway, a Spring Data repository, a service layer with the application use cases, REST endpoints for creating, reading, updating, deleting and changing the status of job applications, a health check endpoint and a continuous integration build. Request validation is not implemented yet.
+JobTrackr API is a Spring Boot REST API for tracking job applications. It is being built step by step from the JobTrackr domain in [java-foundations](https://github.com/aref9571/java-foundations). At this stage the project contains the job application domain model, its PostgreSQL table managed by Flyway, a Spring Data repository, a service layer with the application use cases, REST endpoints for creating, reading, updating, deleting and changing the status of job applications, request validation with consistent error responses, a list endpoint with filters, paging and sorting, a health check endpoint and a continuous integration build.
 
 ## Tech stack
 
@@ -71,7 +71,7 @@ All examples assume the application is running on port 8080. Replace `{id}` with
 | Method | Path | Success | Errors |
 |---|---|---|---|
 | `POST` | `/api/applications` | 201 with a `Location` header | 400, 409 duplicate |
-| `GET` | `/api/applications` | 200 | |
+| `GET` | `/api/applications` | 200 with one page of results | 400 |
 | `GET` | `/api/applications/{id}` | 200 | 400, 404 |
 | `PUT` | `/api/applications/{id}` | 200 | 400, 404, 409 duplicate |
 | `PATCH` | `/api/applications/{id}/status` | 200 | 400, 404, 409 status change not allowed |
@@ -117,11 +117,37 @@ Malformed JSON, an unknown status value and an `id` that is not a UUID also retu
 
 An unexpected server error returns `500 Internal Server Error` with the detail "An unexpected error occurred". The cause is written to the application log, never to the response.
 
-Get one application, or list all of them:
+Get one application:
 
 ```bash
 curl -i http://localhost:8080/api/applications/{id}
-curl -i http://localhost:8080/api/applications
+```
+
+List applications. All query parameters are optional and can be combined:
+
+| Parameter | Meaning |
+|---|---|
+| `status` | only applications with this status, for example `INTERVIEWING` |
+| `company` | only companies whose name contains this text, ignoring case |
+| `appliedFrom`, `appliedTo` | only applications applied on or after, and on or before, these dates (`yyyy-MM-dd`) |
+| `page` | page number, starting at 0 (default 0) |
+| `size` | page size (default 20, at most 100; larger values are reduced to 100) |
+| `sort` | `field` or `field,asc` or `field,desc`; the fields are `appliedDate`, `company`, `status` and `createdAt` (default `createdAt,desc`); repeat the parameter to sort by more than one field |
+
+```bash
+curl -i "http://localhost:8080/api/applications?status=INTERVIEWING&company=acme&page=0&size=5&sort=appliedDate,desc"
+```
+
+The response is one page of results:
+
+```json
+{"content":[{"id":"cb079e49-447e-4eed-b2ff-f6036c910247","company":"Acme Labs","role":"Backend Engineer","status":"INTERVIEWING","appliedDate":"2026-09-04","expectedSalaryCents":null,"salaryCurrency":null,"notes":null,"createdAt":"2026-10-22T16:52:46.867131Z","updatedAt":"2026-10-22T16:52:47.302085Z"}],"page":0,"size":5,"totalElements":1,"totalPages":1}
+```
+
+Sorting by any other field, an unknown status, a date in another format, or `appliedFrom` after `appliedTo` returns `400 Bad Request`:
+
+```json
+{"detail":"Cannot sort by 'salary'. Allowed fields: appliedDate, company, status, createdAt","instance":"/api/applications","status":400,"title":"Bad Request"}
 ```
 
 Update the details of an application:
