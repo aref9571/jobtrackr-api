@@ -12,10 +12,12 @@ import io.github.aref9571.jobtrackr.exception.InvalidApplicationStateException;
 import io.github.aref9571.jobtrackr.model.ApplicationStatus;
 import io.github.aref9571.jobtrackr.service.ApplicationService;
 import org.junit.jupiter.api.Test;
+import org.mockito.ArgumentCaptor;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.webmvc.test.autoconfigure.WebMvcTest;
 import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.data.domain.Pageable;
+import org.springframework.data.domain.Sort;
 import org.springframework.http.MediaType;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.test.web.servlet.MockMvc;
@@ -25,10 +27,12 @@ import java.time.LocalDate;
 import java.util.List;
 import java.util.UUID;
 
+import static org.assertj.core.api.Assertions.assertThat;
 import static org.hamcrest.Matchers.containsString;
 import static org.hamcrest.Matchers.hasSize;
 import static org.hamcrest.Matchers.not;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
@@ -362,6 +366,123 @@ class ApplicationControllerTest {
     }
 
     @Test
+    void searchApplications_filterParameters_passesCriteriaToService() throws Exception {
+        mockMvc.perform(get("/api/applications")
+                        .param("status", "INTERVIEWING")
+                        .param("company", "acme")
+                        .param("appliedFrom", "2026-09-01")
+                        .param("appliedTo", "2026-09-30"))
+                .andExpect(status().isOk());
+
+        verify(applicationService).searchApplications(
+                eq(new ApplicationSearchCriteria(ApplicationStatus.INTERVIEWING, "acme",
+                        LocalDate.of(2026, 9, 1), LocalDate.of(2026, 9, 30))),
+                any(Pageable.class));
+    }
+
+    @Test
+    void searchApplications_pagingParameters_passesPageableToService() throws Exception {
+        mockMvc.perform(get("/api/applications")
+                        .param("page", "1")
+                        .param("size", "5")
+                        .param("sort", "appliedDate,desc"))
+                .andExpect(status().isOk());
+
+        Pageable pageable = capturePageable();
+        assertThat(pageable.getPageNumber()).isEqualTo(1);
+        assertThat(pageable.getPageSize()).isEqualTo(5);
+        assertThat(pageable.getSort()).containsExactly(Sort.Order.desc("appliedDate"));
+    }
+
+    @Test
+    void searchApplications_noParameters_usesDefaultPagingAndNewestFirst() throws Exception {
+        mockMvc.perform(get("/api/applications"))
+                .andExpect(status().isOk());
+
+        Pageable pageable = capturePageable();
+        assertThat(pageable.getPageNumber()).isZero();
+        assertThat(pageable.getPageSize()).isEqualTo(20);
+        assertThat(pageable.getSort()).containsExactly(Sort.Order.desc("createdAt"));
+    }
+
+    @Test
+    void searchApplications_sizeAboveMaximum_isCappedAt100() throws Exception {
+        mockMvc.perform(get("/api/applications").param("size", "500"))
+                .andExpect(status().isOk());
+
+        assertThat(capturePageable().getPageSize()).isEqualTo(100);
+    }
+
+    @Test
+    void searchApplications_unknownSortField_returns400ProblemDetail() throws Exception {
+        mockMvc.perform(get("/api/applications").param("sort", "salary,asc"))
+                .andExpect(status().isBadRequest())
+                .andExpect(content().contentType(MediaType.APPLICATION_PROBLEM_JSON))
+                .andExpect(jsonPath("$.status").value(400))
+                .andExpect(jsonPath("$.detail")
+                        .value("Cannot sort by 'salary'. Allowed fields: appliedDate, company, status, createdAt"))
+                .andExpect(jsonPath("$.instance").value("/api/applications"));
+
+        verifyNoInteractions(applicationService);
+    }
+
+    @Test
+    void searchApplications_existingButNotSortableField_returns400ProblemDetail() throws Exception {
+        mockMvc.perform(get("/api/applications").param("sort", "notes"))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.detail")
+                        .value("Cannot sort by 'notes'. Allowed fields: appliedDate, company, status, createdAt"));
+
+        verifyNoInteractions(applicationService);
+    }
+
+    @Test
+    void searchApplications_oneOfTwoSortFieldsNotAllowed_returns400ProblemDetail() throws Exception {
+        mockMvc.perform(get("/api/applications")
+                        .param("sort", "company,asc")
+                        .param("sort", "role,desc"))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.detail")
+                        .value("Cannot sort by 'role'. Allowed fields: appliedDate, company, status, createdAt"));
+
+        verifyNoInteractions(applicationService);
+    }
+
+    @Test
+    void searchApplications_appliedFromAfterAppliedTo_returns400ProblemDetail() throws Exception {
+        mockMvc.perform(get("/api/applications")
+                        .param("appliedFrom", "2026-10-01")
+                        .param("appliedTo", "2026-09-01"))
+                .andExpect(status().isBadRequest())
+                .andExpect(content().contentType(MediaType.APPLICATION_PROBLEM_JSON))
+                .andExpect(jsonPath("$.detail").value("appliedFrom must not be after appliedTo"));
+
+        verifyNoInteractions(applicationService);
+    }
+
+    @Test
+    void searchApplications_unknownStatus_returns400ProblemDetail() throws Exception {
+        mockMvc.perform(get("/api/applications").param("status", "HIRED"))
+                .andExpect(status().isBadRequest())
+                .andExpect(content().contentType(MediaType.APPLICATION_PROBLEM_JSON))
+                .andExpect(jsonPath("$.detail").value("Failed to convert 'status' with value: 'HIRED'"))
+                .andExpect(content().string(not(containsString("ApplicationStatus"))));
+
+        verifyNoInteractions(applicationService);
+    }
+
+    @Test
+    void searchApplications_invalidDate_returns400ProblemDetail() throws Exception {
+        mockMvc.perform(get("/api/applications").param("appliedFrom", "01.09.2026"))
+                .andExpect(status().isBadRequest())
+                .andExpect(content().contentType(MediaType.APPLICATION_PROBLEM_JSON))
+                .andExpect(jsonPath("$.detail").value("Failed to convert 'appliedFrom' with value: '01.09.2026'"))
+                .andExpect(content().string(not(containsString("Exception"))));
+
+        verifyNoInteractions(applicationService);
+    }
+
+    @Test
     void updateApplication_existingId_returns200WithUpdatedApplication() throws Exception {
         UpdateApplicationRequest request = new UpdateApplicationRequest(
                 "ACME Corp", "Backend Engineer", APPLIED_DATE, 5_000_000L, "EUR", "Referred by a friend");
@@ -522,6 +643,12 @@ class ApplicationControllerTest {
                 .andExpect(status().isNotFound())
                 .andExpect(content().contentType(MediaType.APPLICATION_PROBLEM_JSON))
                 .andExpect(jsonPath("$.detail").value(message));
+    }
+
+    private Pageable capturePageable() {
+        ArgumentCaptor<Pageable> pageableCaptor = ArgumentCaptor.forClass(Pageable.class);
+        verify(applicationService).searchApplications(any(ApplicationSearchCriteria.class), pageableCaptor.capture());
+        return pageableCaptor.getValue();
     }
 
     private static ApplicationResponse response(ApplicationStatus status) {

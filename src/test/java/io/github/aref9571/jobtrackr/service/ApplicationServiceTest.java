@@ -14,12 +14,14 @@ import io.github.aref9571.jobtrackr.model.JobApplication;
 import io.github.aref9571.jobtrackr.repository.JobApplicationRepository;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
+import org.mockito.ArgumentCaptor;
 import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.data.domain.PageImpl;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Pageable;
+import org.springframework.data.domain.Sort;
 import org.springframework.data.jpa.domain.Specification;
 
 import java.time.LocalDate;
@@ -155,6 +157,22 @@ class ApplicationServiceTest {
         assertThat(response.content()).isEmpty();
         assertThat(response.totalElements()).isZero();
         assertThat(response.totalPages()).isZero();
+    }
+
+    @Test
+    void searchApplications_sortedByCompany_addsIdAsLastSortOrder() {
+        Pageable pageable = PageRequest.of(1, 5, Sort.by(Sort.Direction.DESC, "company"));
+        when(repository.findAll(any(Specification.class), any(Pageable.class)))
+                .thenReturn(new PageImpl<>(List.of(), pageable, 5));
+        ArgumentCaptor<Pageable> pageableCaptor = ArgumentCaptor.forClass(Pageable.class);
+
+        service.searchApplications(NO_FILTERS, pageable);
+
+        verify(repository).findAll(any(Specification.class), pageableCaptor.capture());
+        Pageable used = pageableCaptor.getValue();
+        assertThat(used.getPageNumber()).isEqualTo(1);
+        assertThat(used.getPageSize()).isEqualTo(5);
+        assertThat(used.getSort()).containsExactly(Sort.Order.desc("company"), Sort.Order.asc("id"));
     }
 
     @Test
