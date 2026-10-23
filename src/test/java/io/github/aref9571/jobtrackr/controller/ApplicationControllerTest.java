@@ -2,9 +2,12 @@ package io.github.aref9571.jobtrackr.controller;
 
 import io.github.aref9571.jobtrackr.dto.ApplicationResponse;
 import io.github.aref9571.jobtrackr.dto.ApplicationSearchCriteria;
+import io.github.aref9571.jobtrackr.dto.ApplicationStatisticsResponse;
 import io.github.aref9571.jobtrackr.dto.ChangeStatusRequest;
+import io.github.aref9571.jobtrackr.dto.CompanyCount;
 import io.github.aref9571.jobtrackr.dto.CreateApplicationRequest;
 import io.github.aref9571.jobtrackr.dto.PageResponse;
+import io.github.aref9571.jobtrackr.dto.StatusChangeResponse;
 import io.github.aref9571.jobtrackr.dto.UpdateApplicationRequest;
 import io.github.aref9571.jobtrackr.exception.ApplicationNotFoundException;
 import io.github.aref9571.jobtrackr.exception.DuplicateApplicationException;
@@ -24,7 +27,9 @@ import org.springframework.test.web.servlet.MockMvc;
 
 import java.time.Instant;
 import java.time.LocalDate;
+import java.util.EnumMap;
 import java.util.List;
+import java.util.Map;
 import java.util.UUID;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -623,6 +628,72 @@ class ApplicationControllerTest {
                 .andExpect(jsonPath("$.errors.status").value("must not be null"));
 
         verifyNoInteractions(applicationService);
+    }
+
+    @Test
+    void getStatusHistory_existingId_returns200WithEntriesOldestFirst() throws Exception {
+        Instant changedAt = Instant.parse("2026-10-02T14:00:00Z");
+        when(applicationService.getStatusHistory(ID)).thenReturn(List.of(
+                new StatusChangeResponse(null, ApplicationStatus.APPLIED, CREATED_AT),
+                new StatusChangeResponse(ApplicationStatus.APPLIED, ApplicationStatus.INTERVIEWING, changedAt)));
+
+        mockMvc.perform(get("/api/applications/{id}/history", ID))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$", hasSize(2)))
+                .andExpect(jsonPath("$[0].oldStatus").doesNotExist())
+                .andExpect(jsonPath("$[0].newStatus").value("APPLIED"))
+                .andExpect(jsonPath("$[0].changedAt").value("2026-10-01T09:30:00Z"))
+                .andExpect(jsonPath("$[1].oldStatus").value("APPLIED"))
+                .andExpect(jsonPath("$[1].newStatus").value("INTERVIEWING"))
+                .andExpect(jsonPath("$[1].changedAt").value("2026-10-02T14:00:00Z"));
+    }
+
+    @Test
+    void getStatusHistory_unknownId_returns404ProblemDetail() throws Exception {
+        String message = "No application found with id: " + ID;
+        when(applicationService.getStatusHistory(ID)).thenThrow(new ApplicationNotFoundException(message));
+
+        mockMvc.perform(get("/api/applications/{id}/history", ID))
+                .andExpect(status().isNotFound())
+                .andExpect(content().contentType(MediaType.APPLICATION_PROBLEM_JSON))
+                .andExpect(jsonPath("$.detail").value(message))
+                .andExpect(jsonPath("$.instance").value("/api/applications/" + ID + "/history"));
+    }
+
+    @Test
+    void getStatusHistory_invalidUuid_returns400ProblemDetail() throws Exception {
+        mockMvc.perform(get("/api/applications/not-a-uuid/history"))
+                .andExpect(status().isBadRequest())
+                .andExpect(content().contentType(MediaType.APPLICATION_PROBLEM_JSON));
+
+        verifyNoInteractions(applicationService);
+    }
+
+    @Test
+    void getStatistics_returns200WithTotalsStatusCountsAndTopCompanies() throws Exception {
+        Map<ApplicationStatus, Long> byStatus = new EnumMap<>(ApplicationStatus.class);
+        byStatus.put(ApplicationStatus.APPLIED, 1L);
+        byStatus.put(ApplicationStatus.INTERVIEWING, 0L);
+        byStatus.put(ApplicationStatus.OFFER, 1L);
+        byStatus.put(ApplicationStatus.REJECTED, 1L);
+        when(applicationService.getStatistics()).thenReturn(new ApplicationStatisticsResponse(
+                3, 1, byStatus, List.of(new CompanyCount("acme corp", 2), new CompanyCount("globex", 1))));
+
+        mockMvc.perform(get("/api/applications/stats"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.total").value(3))
+                .andExpect(jsonPath("$.active").value(1))
+                .andExpect(jsonPath("$.byStatus.APPLIED").value(1))
+                .andExpect(jsonPath("$.byStatus.INTERVIEWING").value(0))
+                .andExpect(jsonPath("$.byStatus.OFFER").value(1))
+                .andExpect(jsonPath("$.byStatus.REJECTED").value(1))
+                .andExpect(jsonPath("$.topCompanies", hasSize(2)))
+                .andExpect(jsonPath("$.topCompanies[0].company").value("acme corp"))
+                .andExpect(jsonPath("$.topCompanies[0].count").value(2))
+                .andExpect(jsonPath("$.topCompanies[1].company").value("globex"))
+                .andExpect(jsonPath("$.topCompanies[1].count").value(1));
+
+        verify(applicationService).getStatistics();
     }
 
     @Test

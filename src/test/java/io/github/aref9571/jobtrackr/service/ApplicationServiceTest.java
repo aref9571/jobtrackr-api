@@ -2,15 +2,20 @@ package io.github.aref9571.jobtrackr.service;
 
 import io.github.aref9571.jobtrackr.dto.ApplicationResponse;
 import io.github.aref9571.jobtrackr.dto.ApplicationSearchCriteria;
+import io.github.aref9571.jobtrackr.dto.ApplicationStatisticsResponse;
 import io.github.aref9571.jobtrackr.dto.ChangeStatusRequest;
+import io.github.aref9571.jobtrackr.dto.CompanyCount;
 import io.github.aref9571.jobtrackr.dto.CreateApplicationRequest;
 import io.github.aref9571.jobtrackr.dto.PageResponse;
+import io.github.aref9571.jobtrackr.dto.StatusChangeResponse;
+import io.github.aref9571.jobtrackr.dto.StatusCount;
 import io.github.aref9571.jobtrackr.dto.UpdateApplicationRequest;
 import io.github.aref9571.jobtrackr.exception.ApplicationNotFoundException;
 import io.github.aref9571.jobtrackr.exception.DuplicateApplicationException;
 import io.github.aref9571.jobtrackr.exception.InvalidApplicationStateException;
 import io.github.aref9571.jobtrackr.model.ApplicationStatus;
 import io.github.aref9571.jobtrackr.model.JobApplication;
+import io.github.aref9571.jobtrackr.model.StatusChange;
 import io.github.aref9571.jobtrackr.repository.JobApplicationRepository;
 import io.github.aref9571.jobtrackr.repository.StatusChangeRepository;
 import org.junit.jupiter.api.Test;
@@ -19,6 +24,7 @@ import org.mockito.ArgumentCaptor;
 import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
+import org.springframework.data.domain.Limit;
 import org.springframework.data.domain.PageImpl;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Pageable;
@@ -32,6 +38,8 @@ import java.util.UUID;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.assertj.core.api.Assertions.entry;
+import static org.assertj.core.api.Assertions.tuple;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.Mockito.never;
@@ -351,6 +359,142 @@ class ApplicationServiceTest {
                 .isInstanceOf(ApplicationNotFoundException.class)
                 .hasMessage("No application found with id: " + id);
         verify(repository, never()).delete(any(JobApplication.class));
+    }
+
+    @Test
+    void createApplication_newApplication_recordsFirstStatusChange() {
+        CreateApplicationRequest request = new CreateApplicationRequest(
+                "ACME Corp", "Backend Engineer", APPLIED_DATE, null, null, null);
+        when(repository.existsByCompanyIgnoreCaseAndRoleIgnoreCase("ACME Corp", "Backend Engineer")).thenReturn(false);
+        when(repository.saveAndFlush(any(JobApplication.class))).thenAnswer(invocation -> invocation.getArgument(0));
+
+        ApplicationResponse response = service.createApplication(request);
+
+        StatusChange recorded = captureRecordedStatusChange();
+        assertThat(recorded.getApplication().getId()).isEqualTo(response.id());
+        assertThat(recorded.getOldStatus()).isNull();
+        assertThat(recorded.getNewStatus()).isEqualTo(ApplicationStatus.APPLIED);
+    }
+
+    @Test
+    void createApplication_duplicate_recordsNoStatusChange() {
+        CreateApplicationRequest request = new CreateApplicationRequest(
+                "ACME Corp", "Backend Engineer", APPLIED_DATE, null, null, null);
+        when(repository.existsByCompanyIgnoreCaseAndRoleIgnoreCase("ACME Corp", "Backend Engineer")).thenReturn(true);
+
+        assertThatThrownBy(() -> service.createApplication(request))
+                .isInstanceOf(DuplicateApplicationException.class);
+        verify(statusChangeRepository, never()).save(any(StatusChange.class));
+    }
+
+    @Test
+    void changeStatus_allowedChange_recordsOldAndNewStatus() {
+        JobApplication application = application("ACME Corp", "Backend Engineer");
+        when(repository.findById(application.getId())).thenReturn(Optional.of(application));
+        when(repository.saveAndFlush(application)).thenReturn(application);
+
+        service.changeStatus(application.getId(), new ChangeStatusRequest(ApplicationStatus.INTERVIEWING));
+
+        StatusChange recorded = captureRecordedStatusChange();
+        assertThat(recorded.getApplication()).isSameAs(application);
+        assertThat(recorded.getOldStatus()).isEqualTo(ApplicationStatus.APPLIED);
+        assertThat(recorded.getNewStatus()).isEqualTo(ApplicationStatus.INTERVIEWING);
+    }
+
+    @Test
+    void changeStatus_forbiddenChange_recordsNoStatusChange() {
+        JobApplication application = application("ACME Corp", "Backend Engineer");
+        when(repository.findById(application.getId())).thenReturn(Optional.of(application));
+
+        assertThatThrownBy(() -> service.changeStatus(
+                application.getId(), new ChangeStatusRequest(ApplicationStatus.OFFER)))
+                .isInstanceOf(InvalidApplicationStateException.class);
+        verify(statusChangeRepository, never()).save(any(StatusChange.class));
+    }
+
+    @Test
+    void updateApplication_detailsChanged_recordsNoStatusChange() {
+        JobApplication application = application("ACME Corp", "Backend Engineer");
+        UpdateApplicationRequest request = new UpdateApplicationRequest(
+                "ACME Corp", "Backend Engineer", APPLIED_DATE, null, null, "Phone call booked");
+        when(repository.findById(application.getId())).thenReturn(Optional.of(application));
+        when(repository.saveAndFlush(application)).thenReturn(application);
+
+        service.updateApplication(application.getId(), request);
+
+        verify(statusChangeRepository, never()).save(any(StatusChange.class));
+    }
+
+    @Test
+    void getStatusHistory_existingApplication_returnsEntriesInRepositoryOrder() {
+        JobApplication application = application("ACME Corp", "Backend Engineer");
+        StatusChange first = new StatusChange(application, null, ApplicationStatus.APPLIED);
+        StatusChange second = new StatusChange(application, ApplicationStatus.APPLIED, ApplicationStatus.REJECTED);
+        when(repository.existsById(application.getId())).thenReturn(true);
+        when(statusChangeRepository.findByApplicationIdOrderByChangedAtAsc(application.getId()))
+                .thenReturn(List.of(first, second));
+
+        List<StatusChangeResponse> history = service.getStatusHistory(application.getId());
+
+        assertThat(history)
+                .extracting(StatusChangeResponse::oldStatus, StatusChangeResponse::newStatus,
+                        StatusChangeResponse::changedAt)
+                .containsExactly(
+                        tuple(null, ApplicationStatus.APPLIED, first.getChangedAt()),
+                        tuple(ApplicationStatus.APPLIED, ApplicationStatus.REJECTED, second.getChangedAt()));
+    }
+
+    @Test
+    void getStatusHistory_unknownId_throwsExceptionWithoutLoadingHistory() {
+        UUID id = UUID.randomUUID();
+        when(repository.existsById(id)).thenReturn(false);
+
+        assertThatThrownBy(() -> service.getStatusHistory(id))
+                .isInstanceOf(ApplicationNotFoundException.class)
+                .hasMessage("No application found with id: " + id);
+        verify(statusChangeRepository, never()).findByApplicationIdOrderByChangedAtAsc(any(UUID.class));
+    }
+
+    @Test
+    void getStatistics_someStatusesMissing_returnsZeroForThemAndTotals() {
+        List<CompanyCount> topCompanies = List.of(new CompanyCount("acme corp", 2), new CompanyCount("globex", 1));
+        when(repository.countPerStatus()).thenReturn(List.of(
+                new StatusCount(ApplicationStatus.APPLIED, 3),
+                new StatusCount(ApplicationStatus.INTERVIEWING, 2),
+                new StatusCount(ApplicationStatus.REJECTED, 1)));
+        when(repository.findTopCompanies(Limit.of(5))).thenReturn(topCompanies);
+
+        ApplicationStatisticsResponse statistics = service.getStatistics();
+
+        assertThat(statistics.total()).isEqualTo(6);
+        assertThat(statistics.active()).isEqualTo(5);
+        assertThat(statistics.byStatus()).containsExactly(
+                entry(ApplicationStatus.APPLIED, 3L),
+                entry(ApplicationStatus.INTERVIEWING, 2L),
+                entry(ApplicationStatus.OFFER, 0L),
+                entry(ApplicationStatus.REJECTED, 1L));
+        assertThat(statistics.topCompanies()).isEqualTo(topCompanies);
+    }
+
+    @Test
+    void getStatistics_noApplications_returnsZeroForEveryStatus() {
+        when(repository.countPerStatus()).thenReturn(List.of());
+        when(repository.findTopCompanies(Limit.of(5))).thenReturn(List.of());
+
+        ApplicationStatisticsResponse statistics = service.getStatistics();
+
+        assertThat(statistics.total()).isZero();
+        assertThat(statistics.active()).isZero();
+        assertThat(statistics.byStatus())
+                .containsOnlyKeys(ApplicationStatus.values())
+                .allSatisfy((status, count) -> assertThat(count).isZero());
+        assertThat(statistics.topCompanies()).isEmpty();
+    }
+
+    private StatusChange captureRecordedStatusChange() {
+        ArgumentCaptor<StatusChange> statusChangeCaptor = ArgumentCaptor.forClass(StatusChange.class);
+        verify(statusChangeRepository).save(statusChangeCaptor.capture());
+        return statusChangeCaptor.getValue();
     }
 
     private static JobApplication application(String company, String role) {

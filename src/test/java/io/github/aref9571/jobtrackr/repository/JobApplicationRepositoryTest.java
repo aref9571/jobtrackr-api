@@ -1,6 +1,8 @@
 package io.github.aref9571.jobtrackr.repository;
 
 import io.github.aref9571.jobtrackr.TestcontainersConfiguration;
+import io.github.aref9571.jobtrackr.dto.CompanyCount;
+import io.github.aref9571.jobtrackr.dto.StatusCount;
 import io.github.aref9571.jobtrackr.model.ApplicationStatus;
 import io.github.aref9571.jobtrackr.model.JobApplication;
 import org.junit.jupiter.api.Test;
@@ -9,9 +11,11 @@ import org.springframework.boot.data.jpa.test.autoconfigure.DataJpaTest;
 import org.springframework.boot.jpa.test.autoconfigure.TestEntityManager;
 import org.springframework.context.annotation.Import;
 import org.springframework.dao.DataIntegrityViolationException;
+import org.springframework.data.domain.Limit;
 
 import java.time.Instant;
 import java.time.LocalDate;
+import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
 
@@ -133,5 +137,77 @@ class JobApplicationRepositoryTest {
 
         assertThat(saved.getCreatedAt()).isEqualTo(createdAt);
         assertThat(saved.getUpdatedAt()).isAfter(createdAt);
+    }
+
+    @Test
+    void countPerStatus_mixedStatuses_returnsOneRowPerUsedStatus() {
+        saveWithStatus("ACME Corp", "Backend Engineer", ApplicationStatus.APPLIED);
+        saveWithStatus("Globex", "Backend Engineer", ApplicationStatus.APPLIED);
+        saveWithStatus("Initech", "Backend Engineer", ApplicationStatus.INTERVIEWING);
+        saveWithStatus("Hooli", "Backend Engineer", ApplicationStatus.REJECTED);
+
+        List<StatusCount> counts = repository.countPerStatus();
+
+        assertThat(counts).containsExactlyInAnyOrder(
+                new StatusCount(ApplicationStatus.APPLIED, 2),
+                new StatusCount(ApplicationStatus.INTERVIEWING, 1),
+                new StatusCount(ApplicationStatus.REJECTED, 1));
+    }
+
+    @Test
+    void countPerStatus_noApplications_returnsEmptyList() {
+        List<StatusCount> counts = repository.countPerStatus();
+
+        assertThat(counts).isEmpty();
+    }
+
+    @Test
+    void findTopCompanies_sameCompanyInDifferentCase_countsThemTogether() {
+        saveWithStatus("ACME Corp", "Backend Engineer", ApplicationStatus.APPLIED);
+        saveWithStatus("acme corp", "Java Developer", ApplicationStatus.APPLIED);
+        saveWithStatus("Globex", "Backend Engineer", ApplicationStatus.APPLIED);
+
+        List<CompanyCount> topCompanies = repository.findTopCompanies(Limit.of(5));
+
+        assertThat(topCompanies).containsExactly(
+                new CompanyCount("acme corp", 2),
+                new CompanyCount("globex", 1));
+    }
+
+    @Test
+    void findTopCompanies_moreCompaniesThanLimit_returnsMostFrequentWithTiesByName() {
+        saveWithStatus("Umbrella", "Backend Engineer", ApplicationStatus.APPLIED);
+        saveWithStatus("Umbrella", "Java Developer", ApplicationStatus.APPLIED);
+        saveWithStatus("Umbrella", "Platform Engineer", ApplicationStatus.APPLIED);
+        saveWithStatus("Hooli", "Backend Engineer", ApplicationStatus.APPLIED);
+        saveWithStatus("Hooli", "Java Developer", ApplicationStatus.APPLIED);
+        saveWithStatus("Globex", "Backend Engineer", ApplicationStatus.APPLIED);
+        saveWithStatus("Initech", "Backend Engineer", ApplicationStatus.APPLIED);
+        saveWithStatus("ACME Corp", "Backend Engineer", ApplicationStatus.APPLIED);
+        saveWithStatus("Soylent", "Backend Engineer", ApplicationStatus.APPLIED);
+
+        List<CompanyCount> topCompanies = repository.findTopCompanies(Limit.of(5));
+
+        assertThat(topCompanies).containsExactly(
+                new CompanyCount("umbrella", 3),
+                new CompanyCount("hooli", 2),
+                new CompanyCount("acme corp", 1),
+                new CompanyCount("globex", 1),
+                new CompanyCount("initech", 1));
+    }
+
+    @Test
+    void findTopCompanies_noApplications_returnsEmptyList() {
+        List<CompanyCount> topCompanies = repository.findTopCompanies(Limit.of(5));
+
+        assertThat(topCompanies).isEmpty();
+    }
+
+    private void saveWithStatus(String company, String role, ApplicationStatus status) {
+        JobApplication application = new JobApplication(company, role, APPLIED_DATE, null, null, null);
+        if (status != ApplicationStatus.APPLIED) {
+            application.changeStatus(status);
+        }
+        repository.saveAndFlush(application);
     }
 }
