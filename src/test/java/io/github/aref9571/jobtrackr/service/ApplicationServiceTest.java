@@ -12,6 +12,7 @@ import io.github.aref9571.jobtrackr.exception.InvalidApplicationStateException;
 import io.github.aref9571.jobtrackr.model.ApplicationStatus;
 import io.github.aref9571.jobtrackr.model.JobApplication;
 import io.github.aref9571.jobtrackr.repository.JobApplicationRepository;
+import io.github.aref9571.jobtrackr.repository.StatusChangeRepository;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.ArgumentCaptor;
@@ -45,6 +46,9 @@ class ApplicationServiceTest {
 
     @Mock
     private JobApplicationRepository repository;
+
+    @Mock
+    private StatusChangeRepository statusChangeRepository;
 
     @InjectMocks
     private ApplicationService service;

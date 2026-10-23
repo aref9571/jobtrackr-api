@@ -5,12 +5,16 @@ import io.github.aref9571.jobtrackr.dto.ApplicationSearchCriteria;
 import io.github.aref9571.jobtrackr.dto.ChangeStatusRequest;
 import io.github.aref9571.jobtrackr.dto.CreateApplicationRequest;
 import io.github.aref9571.jobtrackr.dto.PageResponse;
+import io.github.aref9571.jobtrackr.dto.StatusChangeResponse;
 import io.github.aref9571.jobtrackr.dto.UpdateApplicationRequest;
 import io.github.aref9571.jobtrackr.exception.ApplicationNotFoundException;
 import io.github.aref9571.jobtrackr.exception.DuplicateApplicationException;
+import io.github.aref9571.jobtrackr.model.ApplicationStatus;
 import io.github.aref9571.jobtrackr.model.JobApplication;
+import io.github.aref9571.jobtrackr.model.StatusChange;
 import io.github.aref9571.jobtrackr.repository.JobApplicationRepository;
 import io.github.aref9571.jobtrackr.repository.JobApplicationSpecifications;
+import io.github.aref9571.jobtrackr.repository.StatusChangeRepository;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Pageable;
@@ -19,15 +23,18 @@ import org.springframework.data.jpa.domain.Specification;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.util.List;
 import java.util.UUID;
 
 @Service
 public class ApplicationService {
 
     private final JobApplicationRepository repository;
+    private final StatusChangeRepository statusChangeRepository;
 
-    public ApplicationService(JobApplicationRepository repository) {
+    public ApplicationService(JobApplicationRepository repository, StatusChangeRepository statusChangeRepository) {
         this.repository = repository;
+        this.statusChangeRepository = statusChangeRepository;
     }
 
     @Transactional
@@ -40,7 +47,9 @@ public class ApplicationService {
                 request.salaryCurrency(),
                 request.notes());
         requireNoDuplicate(application.getCompany(), application.getRole());
-        return ApplicationResponse.from(repository.saveAndFlush(application));
+        JobApplication saved = repository.saveAndFlush(application);
+        recordStatusChange(saved, null);
+        return ApplicationResponse.from(saved);
     }
 
     @Transactional(readOnly = true)
@@ -81,8 +90,19 @@ public class ApplicationService {
     @Transactional
     public ApplicationResponse changeStatus(UUID id, ChangeStatusRequest request) {
         JobApplication application = findApplication(id);
+        ApplicationStatus oldStatus = application.getStatus();
         application.changeStatus(request.status());
-        return ApplicationResponse.from(repository.saveAndFlush(application));
+        JobApplication saved = repository.saveAndFlush(application);
+        recordStatusChange(saved, oldStatus);
+        return ApplicationResponse.from(saved);
+    }
+
+    @Transactional(readOnly = true)
+    public List<StatusChangeResponse> getStatusHistory(UUID id) {
+        requireApplicationExists(id);
+        return statusChangeRepository.findByApplicationIdOrderByChangedAtAsc(id).stream()
+                .map(StatusChangeResponse::from)
+                .toList();
     }
 
     @Transactional
@@ -94,6 +114,16 @@ public class ApplicationService {
     private JobApplication findApplication(UUID id) {
         return repository.findById(id)
                 .orElseThrow(() -> new ApplicationNotFoundException("No application found with id: " + id));
+    }
+
+    private void requireApplicationExists(UUID id) {
+        if (!repository.existsById(id)) {
+            throw new ApplicationNotFoundException("No application found with id: " + id);
+        }
+    }
+
+    private void recordStatusChange(JobApplication application, ApplicationStatus oldStatus) {
+        statusChangeRepository.save(new StatusChange(application, oldStatus, application.getStatus()));
     }
 
     private void requireNoDuplicate(String company, String role) {

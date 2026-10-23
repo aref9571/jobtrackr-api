@@ -5,6 +5,7 @@ import io.github.aref9571.jobtrackr.dto.ApplicationSearchCriteria;
 import io.github.aref9571.jobtrackr.dto.ChangeStatusRequest;
 import io.github.aref9571.jobtrackr.dto.CreateApplicationRequest;
 import io.github.aref9571.jobtrackr.dto.PageResponse;
+import io.github.aref9571.jobtrackr.dto.StatusChangeResponse;
 import io.github.aref9571.jobtrackr.dto.UpdateApplicationRequest;
 import io.github.aref9571.jobtrackr.exception.InvalidSearchParameterException;
 import io.github.aref9571.jobtrackr.model.ApplicationStatus;
@@ -84,6 +85,11 @@ public class ApplicationController {
     @PatchMapping("/{id}/status")
     public ApplicationResponse changeStatus(@PathVariable UUID id, @Valid @RequestBody ChangeStatusRequest request) {
         return applicationService.changeStatus(id, request);
+    }
+
+    @GetMapping("/{id}/history")
+    public List<StatusChangeResponse> getStatusHistory(@PathVariable UUID id) {
+        return applicationService.getStatusHistory(id);
     }
 
     @DeleteMapping("/{id}")
