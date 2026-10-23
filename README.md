@@ -1,6 +1,6 @@
 # JobTrackr API
 
-JobTrackr API is a Spring Boot REST API for tracking job applications. It is being built step by step from the JobTrackr domain in [java-foundations](https://github.com/aref9571/java-foundations). At this stage the project contains the job application domain model, its PostgreSQL table managed by Flyway, a Spring Data repository, a service layer with the application use cases, REST endpoints for creating, reading, updating, deleting and changing the status of job applications, request validation with consistent error responses, a list endpoint with filters, paging and sorting, a health check endpoint and a continuous integration build.
+JobTrackr API is a Spring Boot REST API for tracking job applications. It is being built step by step from the JobTrackr domain in [java-foundations](https://github.com/aref9571/java-foundations). At this stage the project contains the job application domain model, its PostgreSQL table managed by Flyway, a Spring Data repository, a service layer with the application use cases, REST endpoints for creating, reading, updating, deleting and changing the status of job applications, request validation with consistent error responses, a list endpoint with filters, paging and sorting, a status history for each application, statistics computed in the database, a health check endpoint and a continuous integration build.
 
 ## Tech stack
 
@@ -75,6 +75,8 @@ All examples assume the application is running on port 8080. Replace `{id}` with
 | `GET` | `/api/applications/{id}` | 200 | 400, 404 |
 | `PUT` | `/api/applications/{id}` | 200 | 400, 404, 409 duplicate |
 | `PATCH` | `/api/applications/{id}/status` | 200 | 400, 404, 409 status change not allowed |
+| `GET` | `/api/applications/{id}/history` | 200 | 400, 404 |
+| `GET` | `/api/applications/stats` | 200 | |
 | `DELETE` | `/api/applications/{id}` | 204 | 400, 404 |
 
 Create an application:
@@ -187,7 +189,29 @@ curl -i -X PATCH http://localhost:8080/api/applications/{id}/status \
 {"detail":"Cannot move from INTERVIEWING to APPLIED","instance":"/api/applications/0e85fcf9-d5c2-4e75-8e82-ad8efe50cb4a/status","status":409,"title":"Conflict"}
 ```
 
-Delete an application. The response is `204 No Content`, and a later `GET` returns `404 Not Found`:
+Every status an application has had is stored in the `application_status_changes` table: one entry when it is created and one for each allowed status change. Get the history, oldest first:
+
+```bash
+curl -i http://localhost:8080/api/applications/{id}/history
+```
+
+```json
+[{"oldStatus":null,"newStatus":"APPLIED","changedAt":"2026-10-23T13:47:20.402240Z"},{"oldStatus":"APPLIED","newStatus":"INTERVIEWING","changedAt":"2026-10-23T13:47:20.555596Z"},{"oldStatus":"INTERVIEWING","newStatus":"OFFER","changedAt":"2026-10-23T13:47:20.583869Z"}]
+```
+
+Get statistics over all applications:
+
+```bash
+curl -i http://localhost:8080/api/applications/stats
+```
+
+```json
+{"total":3,"active":1,"byStatus":{"APPLIED":1,"INTERVIEWING":0,"OFFER":1,"REJECTED":1},"topCompanies":[{"company":"acme corp","count":2},{"company":"globex","count":1}]}
+```
+
+`active` counts the applications in `APPLIED` or `INTERVIEWING`. `byStatus` always lists every status, with 0 when there are none. `topCompanies` lists at most five companies with the most applications; company names are compared ignoring case and shown in lower case, and companies with the same count are ordered by name. The numbers are computed with `GROUP BY` queries in PostgreSQL.
+
+Delete an application. Its status history is deleted with it. The response is `204 No Content`, and a later `GET` returns `404 Not Found`:
 
 ```bash
 curl -i -X DELETE http://localhost:8080/api/applications/{id}
