@@ -2,6 +2,7 @@ package io.github.aref9571.jobtrackr.controller;
 
 import io.github.aref9571.jobtrackr.dto.ApplicationResponse;
 import io.github.aref9571.jobtrackr.dto.ApplicationSearchCriteria;
+import io.github.aref9571.jobtrackr.dto.ApplicationStatisticsResponse;
 import io.github.aref9571.jobtrackr.dto.ChangeStatusRequest;
 import io.github.aref9571.jobtrackr.dto.CreateApplicationRequest;
 import io.github.aref9571.jobtrackr.dto.PageResponse;
@@ -56,6 +57,11 @@ public class ApplicationController {
                 .buildAndExpand(response.id())
                 .toUri();
         return ResponseEntity.created(location).body(response);
+    }
+
+    @GetMapping("/stats")
+    public ApplicationStatisticsResponse getStatistics() {
+        return applicationService.getStatistics();
     }
 
     @GetMapping("/{id}")

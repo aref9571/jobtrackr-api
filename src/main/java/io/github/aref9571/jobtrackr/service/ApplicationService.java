@@ -2,10 +2,13 @@ package io.github.aref9571.jobtrackr.service;
 
 import io.github.aref9571.jobtrackr.dto.ApplicationResponse;
 import io.github.aref9571.jobtrackr.dto.ApplicationSearchCriteria;
+import io.github.aref9571.jobtrackr.dto.ApplicationStatisticsResponse;
 import io.github.aref9571.jobtrackr.dto.ChangeStatusRequest;
+import io.github.aref9571.jobtrackr.dto.CompanyCount;
 import io.github.aref9571.jobtrackr.dto.CreateApplicationRequest;
 import io.github.aref9571.jobtrackr.dto.PageResponse;
 import io.github.aref9571.jobtrackr.dto.StatusChangeResponse;
+import io.github.aref9571.jobtrackr.dto.StatusCount;
 import io.github.aref9571.jobtrackr.dto.UpdateApplicationRequest;
 import io.github.aref9571.jobtrackr.exception.ApplicationNotFoundException;
 import io.github.aref9571.jobtrackr.exception.DuplicateApplicationException;
@@ -15,6 +18,7 @@ import io.github.aref9571.jobtrackr.model.StatusChange;
 import io.github.aref9571.jobtrackr.repository.JobApplicationRepository;
 import io.github.aref9571.jobtrackr.repository.JobApplicationSpecifications;
 import io.github.aref9571.jobtrackr.repository.StatusChangeRepository;
+import org.springframework.data.domain.Limit;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Pageable;
@@ -23,11 +27,15 @@ import org.springframework.data.jpa.domain.Specification;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.util.EnumMap;
 import java.util.List;
+import java.util.Map;
 import java.util.UUID;
 
 @Service
 public class ApplicationService {
+
+    private static final int TOP_COMPANIES_LIMIT = 5;
 
     private final JobApplicationRepository repository;
     private final StatusChangeRepository statusChangeRepository;
@@ -105,6 +113,21 @@ public class ApplicationService {
                 .toList();
     }
 
+    @Transactional(readOnly = true)
+    public ApplicationStatisticsResponse getStatistics() {
+        Map<ApplicationStatus, Long> byStatus = countPerStatus();
+        long total = 0;
+        long active = 0;
+        for (Map.Entry<ApplicationStatus, Long> entry : byStatus.entrySet()) {
+            total += entry.getValue();
+            if (entry.getKey().isActive()) {
+                active += entry.getValue();
+            }
+        }
+        List<CompanyCount> topCompanies = repository.findTopCompanies(Limit.of(TOP_COMPANIES_LIMIT));
+        return new ApplicationStatisticsResponse(total, active, byStatus, topCompanies);
+    }
+
     @Transactional
     public void deleteApplication(UUID id) {
         JobApplication application = findApplication(id);
@@ -114,6 +137,17 @@ public class ApplicationService {
     private JobApplication findApplication(UUID id) {
         return repository.findById(id)
                 .orElseThrow(() -> new ApplicationNotFoundException("No application found with id: " + id));
+    }
+
+    private Map<ApplicationStatus, Long> countPerStatus() {
+        Map<ApplicationStatus, Long> byStatus = new EnumMap<>(ApplicationStatus.class);
+        for (ApplicationStatus status : ApplicationStatus.values()) {
+            byStatus.put(status, 0L);
+        }
+        for (StatusCount statusCount : repository.countPerStatus()) {
+            byStatus.put(statusCount.status(), statusCount.count());
+        }
+        return byStatus;
     }
 
     private void requireApplicationExists(UUID id) {
