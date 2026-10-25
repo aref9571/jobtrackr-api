@@ -22,3 +22,10 @@ management:
     web:
       exposure:
         include: health
+
+springdoc:
+  open-api:
+    info:
+      title: JobTrackr API
+      description: "@project.description@"
+      version: "@project.version@"

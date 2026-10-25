@@ -12,6 +12,7 @@ import io.github.aref9571.jobtrackr.exception.InvalidSearchParameterException;
 import io.github.aref9571.jobtrackr.model.ApplicationStatus;
 import io.github.aref9571.jobtrackr.service.ApplicationService;
 import jakarta.validation.Valid;
+import org.springdoc.core.annotations.ParameterObject;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.domain.Sort;
 import org.springframework.data.web.PageableDefault;
@@ -75,7 +76,8 @@ public class ApplicationController {
             @RequestParam(required = false) String company,
             @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate appliedFrom,
             @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate appliedTo,
-            @PageableDefault(size = 20, sort = "createdAt", direction = Sort.Direction.DESC) Pageable pageable) {
+            @ParameterObject @PageableDefault(size = 20, sort = "createdAt", direction = Sort.Direction.DESC)
+            Pageable pageable) {
         requireValidDateRange(appliedFrom, appliedTo);
         requireSortableFields(pageable.getSort());
         ApplicationSearchCriteria criteria = new ApplicationSearchCriteria(status, company, appliedFrom, appliedTo);
