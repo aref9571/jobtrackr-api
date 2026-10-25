@@ -1,14 +1,16 @@
 # JobTrackr API
 
-JobTrackr API is a Spring Boot REST API for tracking job applications. It is being built step by step from the JobTrackr domain in [java-foundations](https://github.com/aref9571/java-foundations). At this stage the project contains the job application domain model, its PostgreSQL table managed by Flyway, a Spring Data repository, a service layer with the application use cases, REST endpoints for creating, reading, updating, deleting and changing the status of job applications, request validation with consistent error responses, a list endpoint with filters, paging and sorting, a status history for each application, statistics computed in the database, a health check endpoint and a continuous integration build.
+JobTrackr API is a Spring Boot REST API for tracking job applications. It is being built step by step from the JobTrackr domain in [java-foundations](https://github.com/aref9571/java-foundations). At this stage the project contains the job application domain model, its PostgreSQL table managed by Flyway, a Spring Data repository, a service layer with the application use cases, REST endpoints for creating, reading, updating, deleting and changing the status of job applications, request validation with consistent error responses, a list endpoint with filters, paging and sorting, a status history for each application, statistics computed in the database, OpenAPI documentation with Swagger UI, a health check endpoint, an end-to-end API test, a coverage report and a continuous integration build.
 
 ## Tech stack
 
 - Java 21
 - Spring Boot 4.1.1 (Spring Web MVC, Validation, Actuator, Spring Data JPA)
+- springdoc-openapi with Swagger UI
 - PostgreSQL 17 with Flyway migrations
 - Maven with the Maven Wrapper
 - JUnit 5, Mockito and Testcontainers
+- JaCoCo for test coverage
 - Docker Compose for the local database
 - GitHub Actions
 
@@ -64,9 +66,14 @@ The response contains `"status":"UP"`.
 
 Stop the database with `docker compose down`. Add `-v` to delete its data volume as well.
 
-## API examples
+## API documentation
 
-All examples assume the application is running on port 8080. Replace `{id}` with the `id` returned when the application was created.
+While the application is running, Swagger UI lists every endpoint with its parameters, request bodies and responses, and can send requests to the running application:
+
+- Swagger UI: http://localhost:8080/swagger-ui.html
+- OpenAPI description in JSON: http://localhost:8080/v3/api-docs
+
+## Endpoints
 
 | Method | Path | Success | Errors |
 |---|---|---|---|
@@ -78,6 +85,13 @@ All examples assume the application is running on port 8080. Replace `{id}` with
 | `GET` | `/api/applications/{id}/history` | 200 | 400, 404 |
 | `GET` | `/api/applications/stats` | 200 | |
 | `DELETE` | `/api/applications/{id}` | 204 | 400, 404 |
+| `GET` | `/actuator/health` | 200 | |
+| `GET` | `/swagger-ui.html` | 302 to Swagger UI | |
+| `GET` | `/v3/api-docs` | 200 with the OpenAPI description | |
+
+## API examples
+
+All examples assume the application is running on port 8080. Replace `{id}` with the `id` returned when the application was created.
 
 Create an application:
 
@@ -224,10 +238,28 @@ Errors use the Problem Details format (RFC 9457) with the content type `applicat
 {"detail":"No application found with id: 0e85fcf9-d5c2-4e75-8e82-ad8efe50cb4a","instance":"/api/applications/0e85fcf9-d5c2-4e75-8e82-ad8efe50cb4a","status":404,"title":"Not Found"}
 ```
 
-## Test
+## Running tests
+
+Run all tests and build the coverage report:
 
 ```bash
 ./mvnw --batch-mode clean verify
 ```
 
-The repository and application tests start a PostgreSQL 17 container with Testcontainers, so Docker must be running. The service tests use Mockito and the controller tests use MockMvc with a mocked service, so both run without a database. The same command runs in GitHub Actions on every push.
+Docker must be running, because some tests start a PostgreSQL 17 container with Testcontainers.
+
+| Kind | Classes | What runs |
+|---|---|---|
+| Unit tests | `model`, `dto` and `service` tests | Plain JUnit tests; the service tests replace the repositories with Mockito mocks |
+| Repository tests | `repository` tests | `@DataJpaTest` against PostgreSQL in Testcontainers, with the Flyway migrations |
+| Controller tests | `ApplicationControllerTest` | `@WebMvcTest` with MockMvc and a mocked service, no database |
+| Context test | `JobtrackrApiApplicationTests` | Starts the application context against PostgreSQL in Testcontainers |
+| Integration test | `ApplicationApiIntegrationTest` | The whole application on a random port against PostgreSQL in Testcontainers, called over HTTP with `RestTestClient`: create, get, update, change status, history, statistics and delete |
+
+Run one test class:
+
+```bash
+./mvnw --batch-mode test -Dtest=ApplicationApiIntegrationTest
+```
+
+`verify` also writes a JaCoCo coverage report to `target/site/jacoco/index.html`. GitHub Actions runs the same command on every push and uploads the report as the `jacoco-report` artifact of the workflow run.
