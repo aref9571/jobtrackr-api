@@ -22,3 +22,10 @@ jobs:
 
       - name: Build and test
         run: ./mvnw --batch-mode clean verify
+
+      - name: Upload coverage report
+        uses: actions/upload-artifact@v7
+        with:
+          name: jacoco-report
+          path: target/site/jacoco/
+          if-no-files-found: error
