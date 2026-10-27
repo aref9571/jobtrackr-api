@@ -1,5 +1,6 @@
 package io.github.aref9571.jobtrackr.controller;
 
+import io.github.aref9571.jobtrackr.config.SecurityConfig;
 import io.github.aref9571.jobtrackr.dto.ApplicationResponse;
 import io.github.aref9571.jobtrackr.dto.ApplicationSearchCriteria;
 import io.github.aref9571.jobtrackr.dto.ApplicationStatisticsResponse;
@@ -18,6 +19,7 @@ import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.webmvc.test.autoconfigure.WebMvcTest;
+import org.springframework.context.annotation.Import;
 import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.domain.Sort;
@@ -53,6 +55,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 @WebMvcTest(ApplicationController.class)
+@Import(SecurityConfig.class)
 class ApplicationControllerTest {
 
     private static final UUID ID = UUID.fromString("3f2b8c1e-6d4a-4f7b-9a1e-2c5d8e7f6a01");
