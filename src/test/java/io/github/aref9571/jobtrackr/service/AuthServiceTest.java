@@ -80,6 +80,16 @@ class AuthServiceTest {
     }
 
     @Test
+    void register_passwordLongerThan72Bytes_throwsExceptionWithoutSaving() {
+        String password = "\u00fc".repeat(40);
+        when(userRepository.existsByEmail("ann@example.com")).thenReturn(false);
+
+        assertThatThrownBy(() -> service.register(new RegisterRequest("ann@example.com", password)))
+                .isInstanceOf(IllegalArgumentException.class);
+        verify(userRepository, never()).saveAndFlush(any(User.class));
+    }
+
+    @Test
     void register_existingEmail_throwsExceptionWithoutSaving() {
         when(userRepository.existsByEmail("ann@example.com")).thenReturn(true);
 
