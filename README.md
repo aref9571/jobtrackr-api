@@ -1,11 +1,11 @@
 # JobTrackr API
 
-JobTrackr API is a Spring Boot REST API for tracking job applications. It is being built step by step from the JobTrackr domain in [java-foundations](https://github.com/aref9571/java-foundations). At this stage the project contains the job application domain model, its PostgreSQL table managed by Flyway, a Spring Data repository, a service layer with the application use cases, REST endpoints for creating, reading, updating, deleting and changing the status of job applications, request validation with consistent error responses, a list endpoint with filters, paging and sorting, a status history for each application, statistics computed in the database, OpenAPI documentation with Swagger UI, a health check endpoint, an end-to-end API test, a coverage report and a continuous integration build.
+JobTrackr API is a Spring Boot REST API for tracking job applications. It is being built step by step from the JobTrackr domain in [java-foundations](https://github.com/aref9571/java-foundations). At this stage the project contains the job application domain model, its PostgreSQL table managed by Flyway, a Spring Data repository, a service layer with the application use cases, REST endpoints for creating, reading, updating, deleting and changing the status of job applications, request validation with consistent error responses, a list endpoint with filters, paging and sorting, a status history for each application, statistics computed in the database, user registration with BCrypt password hashing, OpenAPI documentation with Swagger UI, a health check endpoint, an end-to-end API test, a coverage report and a continuous integration build.
 
 ## Tech stack
 
 - Java 21
-- Spring Boot 4.1.1 (Spring Web MVC, Validation, Actuator, Spring Data JPA)
+- Spring Boot 4.1.1 (Spring Web MVC, Validation, Actuator, Spring Data JPA, Spring Security)
 - springdoc-openapi with Swagger UI
 - PostgreSQL 17 with Flyway migrations
 - Maven with the Maven Wrapper
@@ -77,6 +77,7 @@ While the application is running, Swagger UI lists every endpoint with its param
 
 | Method | Path | Success | Errors |
 |---|---|---|---|
+| `POST` | `/api/auth/register` | 201 with `id` and `email` | 400, 409 email already registered |
 | `POST` | `/api/applications` | 201 with a `Location` header | 400, 409 duplicate |
 | `GET` | `/api/applications` | 200 with one page of results | 400 |
 | `GET` | `/api/applications/{id}` | 200 | 400, 404 |
@@ -89,9 +90,36 @@ While the application is running, Swagger UI lists every endpoint with its param
 | `GET` | `/swagger-ui.html` | 302 to Swagger UI | |
 | `GET` | `/v3/api-docs` | 200 with the OpenAPI description | |
 
+Login is not implemented yet, so the application endpoints can still be called without authentication. Registration, the health check and the API documentation are public; any other path, for example `/actuator/env`, returns `403 Forbidden`.
+
 ## API examples
 
 All examples assume the application is running on port 8080. Replace `{id}` with the `id` returned when the application was created.
+
+Register a user:
+
+```bash
+curl -i -X POST http://localhost:8080/api/auth/register \
+  -H "Content-Type: application/json" \
+  -d '{"email":"Ann.Smith@Example.com","password":"correct-horse-battery"}'
+```
+
+The response is `201 Created` with the new user's id and email. The password is never returned:
+
+```json
+{"id":"ef5997a0-f5f7-4f82-8187-16a364ccd7dc","email":"ann.smith@example.com"}
+```
+
+| Field | Rules |
+|---|---|
+| `email` | required, a valid email address, at most 254 characters; stored in lower case |
+| `password` | required, 8 to 72 characters and at most 72 bytes in UTF-8 |
+
+The password is stored only as a BCrypt hash in the `users` table. Emails are compared ignoring case, so registering `ANN.SMITH@EXAMPLE.COM` afterwards returns `409 Conflict`:
+
+```json
+{"detail":"Email is already registered","instance":"/api/auth/register","status":409,"title":"Conflict"}
+```
 
 Create an application:
 
@@ -252,9 +280,10 @@ Docker must be running, because some tests start a PostgreSQL 17 container with 
 |---|---|---|
 | Unit tests | `model`, `dto` and `service` tests | Plain JUnit tests; the service tests replace the repositories with Mockito mocks |
 | Repository tests | `repository` tests | `@DataJpaTest` against PostgreSQL in Testcontainers, with the Flyway migrations |
-| Controller tests | `ApplicationControllerTest` | `@WebMvcTest` with MockMvc and a mocked service, no database |
+| Controller tests | `ApplicationControllerTest`, `AuthControllerTest` | `@WebMvcTest` with MockMvc, the security configuration and a mocked service, no database |
 | Context test | `JobtrackrApiApplicationTests` | Starts the application context against PostgreSQL in Testcontainers |
 | Integration test | `ApplicationApiIntegrationTest` | The whole application on a random port against PostgreSQL in Testcontainers, called over HTTP with `RestTestClient`: create, get, update, change status, history, statistics and delete |
+| Integration test | `AuthApiIntegrationTest` | Registration over HTTP against PostgreSQL, the stored BCrypt hash, duplicate emails in another case, and which paths are public |
 
 Run one test class:
 
