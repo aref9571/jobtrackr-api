@@ -24,6 +24,7 @@ import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.domain.Sort;
 import org.springframework.http.MediaType;
+import org.springframework.security.core.userdetails.UserDetailsService;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.test.web.servlet.MockMvc;
 
@@ -56,6 +57,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 
 @WebMvcTest(ApplicationController.class)
 @Import(SecurityConfig.class)
+@MockitoBean(types = UserDetailsService.class)
 class ApplicationControllerTest {
 
     private static final UUID ID = UUID.fromString("3f2b8c1e-6d4a-4f7b-9a1e-2c5d8e7f6a01");

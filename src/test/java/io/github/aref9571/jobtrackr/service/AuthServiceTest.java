@@ -6,12 +6,14 @@ import io.github.aref9571.jobtrackr.exception.EmailAlreadyUsedException;
 import io.github.aref9571.jobtrackr.model.Role;
 import io.github.aref9571.jobtrackr.model.User;
 import io.github.aref9571.jobtrackr.repository.UserRepository;
+import io.github.aref9571.jobtrackr.security.TokenService;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.ArgumentCaptor;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
+import org.springframework.security.authentication.AuthenticationManager;
 import org.springframework.security.crypto.bcrypt.BCryptPasswordEncoder;
 import org.springframework.security.crypto.password.PasswordEncoder;
 
@@ -30,13 +32,19 @@ class AuthServiceTest {
     @Mock
     private UserRepository userRepository;
 
+    @Mock
+    private AuthenticationManager authenticationManager;
+
+    @Mock
+    private TokenService tokenService;
+
     private final PasswordEncoder passwordEncoder = new BCryptPasswordEncoder();
 
     private AuthService service;
 
     @BeforeEach
     void setUp() {
-        service = new AuthService(userRepository, passwordEncoder);
+        service = new AuthService(userRepository, passwordEncoder, authenticationManager, tokenService);
     }
 
     @Test

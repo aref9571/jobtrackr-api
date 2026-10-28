@@ -1,5 +1,7 @@
 package io.github.aref9571.jobtrackr.controller;
 
+import io.github.aref9571.jobtrackr.dto.LoginRequest;
+import io.github.aref9571.jobtrackr.dto.LoginResponse;
 import io.github.aref9571.jobtrackr.dto.RegisterRequest;
 import io.github.aref9571.jobtrackr.dto.RegisterResponse;
 import io.github.aref9571.jobtrackr.service.AuthService;
@@ -25,5 +27,10 @@ public class AuthController {
     @ResponseStatus(HttpStatus.CREATED)
     public RegisterResponse register(@Valid @RequestBody RegisterRequest request) {
         return authService.register(request);
+    }
+
+    @PostMapping("/login")
+    public LoginResponse login(@Valid @RequestBody LoginRequest request) {
+        return authService.login(request);
     }
 }

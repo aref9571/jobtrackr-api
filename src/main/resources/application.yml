@@ -29,3 +29,8 @@ springdoc:
       title: JobTrackr API
       description: "@project.description@"
       version: "@project.version@"
+
+jobtrackr:
+  jwt:
+    secret: ${JWT_SECRET}
+    expiration: 1h
