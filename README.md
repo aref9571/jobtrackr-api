@@ -1,11 +1,11 @@
 # JobTrackr API
 
-JobTrackr API is a Spring Boot REST API for tracking job applications. It is being built step by step from the JobTrackr domain in [java-foundations](https://github.com/aref9571/java-foundations). At this stage the project contains the job application domain model, its PostgreSQL table managed by Flyway, a Spring Data repository, a service layer with the application use cases, REST endpoints for creating, reading, updating, deleting and changing the status of job applications, request validation with consistent error responses, a list endpoint with filters, paging and sorting, a status history for each application, statistics computed in the database, user registration with BCrypt password hashing, OpenAPI documentation with Swagger UI, a health check endpoint, an end-to-end API test, a coverage report and a continuous integration build.
+JobTrackr API is a Spring Boot REST API for tracking job applications. It is being built step by step from the JobTrackr domain in [java-foundations](https://github.com/aref9571/java-foundations). At this stage the project contains the job application domain model, its PostgreSQL table managed by Flyway, a Spring Data repository, a service layer with the application use cases, REST endpoints for creating, reading, updating, deleting and changing the status of job applications, request validation with consistent error responses, a list endpoint with filters, paging and sorting, a status history for each application, statistics computed in the database, user registration with BCrypt password hashing, login with JSON Web Tokens (JWT) that protect every application endpoint, OpenAPI documentation with Swagger UI, a health check endpoint, an end-to-end API test, a coverage report and a continuous integration build.
 
 ## Tech stack
 
 - Java 21
-- Spring Boot 4.1.1 (Spring Web MVC, Validation, Actuator, Spring Data JPA, Spring Security)
+- Spring Boot 4.1.1 (Spring Web MVC, Validation, Actuator, Spring Data JPA, Spring Security with the OAuth2 resource server for JWT)
 - springdoc-openapi with Swagger UI
 - PostgreSQL 17 with Flyway migrations
 - Maven with the Maven Wrapper
@@ -23,19 +23,23 @@ Maven does not need to be installed. The Maven Wrapper downloads the right versi
 
 ## Configuration
 
-The application reads the database settings from environment variables:
+The application reads the database settings and the token signing secret from environment variables:
 
 | Variable | Default | Description |
 |---|---|---|
 | `DB_URL` | `jdbc:postgresql://localhost:5432/jobtrackr` | JDBC URL of the database |
 | `DB_USERNAME` | `jobtrackr` | Database user |
 | `DB_PASSWORD` | none | Database password, must be set |
+| `JWT_SECRET` | none | Secret used to sign and check login tokens (HS256), must be set and at least 32 bytes long |
 
-Copy `.env.example` to `.env` and choose a password. Docker Compose reads `.env` to create the database user. The `.env` file is ignored by Git.
+Copy `.env.example` to `.env`, choose a database password and set `JWT_SECRET` to a random value. Docker Compose reads `.env` to create the database user. The `.env` file is ignored by Git.
 
 ```bash
 cp .env.example .env
+openssl rand -base64 32
 ```
+
+Put the output of `openssl rand -base64 32` into `JWT_SECRET`. The application does not start when `JWT_SECRET` is missing or shorter than 32 bytes. Tokens are valid for one hour (`jobtrackr.jwt.expiration` in `application.yml`).
 
 ## Run
 
@@ -73,28 +77,33 @@ While the application is running, Swagger UI lists every endpoint with its param
 - Swagger UI: http://localhost:8080/swagger-ui.html
 - OpenAPI description in JSON: http://localhost:8080/v3/api-docs
 
+To call the application endpoints from Swagger UI, log in with `POST /api/auth/login`, click "Authorize" and paste the `accessToken` value.
+
 ## Endpoints
 
 | Method | Path | Success | Errors |
 |---|---|---|---|
-| `POST` | `/api/auth/register` | 201 with `id` and `email` | 400, 409 email already registered |
-| `POST` | `/api/applications` | 201 with a `Location` header | 400, 409 duplicate |
-| `GET` | `/api/applications` | 200 with one page of results | 400 |
-| `GET` | `/api/applications/{id}` | 200 | 400, 404 |
-| `PUT` | `/api/applications/{id}` | 200 | 400, 404, 409 duplicate |
-| `PATCH` | `/api/applications/{id}/status` | 200 | 400, 404, 409 status change not allowed |
-| `GET` | `/api/applications/{id}/history` | 200 | 400, 404 |
-| `GET` | `/api/applications/stats` | 200 | |
-| `DELETE` | `/api/applications/{id}` | 204 | 400, 404 |
-| `GET` | `/actuator/health` | 200 | |
-| `GET` | `/swagger-ui.html` | 302 to Swagger UI | |
-| `GET` | `/v3/api-docs` | 200 with the OpenAPI description | |
+| Method | Path | Token | Success | Errors |
+|---|---|---|---|---|
+| `POST` | `/api/auth/register` | no | 201 with `id` and `email` | 400, 409 email already registered |
+| `POST` | `/api/auth/login` | no | 200 with `accessToken`, `tokenType` and `expiresIn` | 400, 401 invalid email or password |
+| `POST` | `/api/applications` | yes | 201 with a `Location` header | 400, 401, 409 duplicate |
+| `GET` | `/api/applications` | yes | 200 with one page of results | 400, 401 |
+| `GET` | `/api/applications/{id}` | yes | 200 | 400, 401, 404 |
+| `PUT` | `/api/applications/{id}` | yes | 200 | 400, 401, 404, 409 duplicate |
+| `PATCH` | `/api/applications/{id}/status` | yes | 200 | 400, 401, 404, 409 status change not allowed |
+| `GET` | `/api/applications/{id}/history` | yes | 200 | 400, 401, 404 |
+| `GET` | `/api/applications/stats` | yes | 200 | 401 |
+| `DELETE` | `/api/applications/{id}` | yes | 204 | 400, 401, 404 |
+| `GET` | `/actuator/health` | no | 200 | |
+| `GET` | `/swagger-ui.html` | no | 302 to Swagger UI | |
+| `GET` | `/v3/api-docs` | no | 200 with the OpenAPI description | |
 
-Login is not implemented yet, so the application endpoints can still be called without authentication. Registration, the health check and the API documentation are public; any other path, for example `/actuator/env`, returns `403 Forbidden`.
+Registration, login, the health check and the API documentation are public. Every other path needs a valid token in the `Authorization: Bearer <token>` header. A request without a token, with a token that is not a valid JWT, with a wrong signature or with an expired token returns `401 Unauthorized` with an empty body and a `WWW-Authenticate` header.
 
 ## API examples
 
-All examples assume the application is running on port 8080. Replace `{id}` with the `id` returned when the application was created.
+All examples assume the application is running on port 8080. Replace `{id}` with the `id` returned when the application was created. The application endpoints need the token from the login example.
 
 Register a user:
 
@@ -121,10 +130,37 @@ The password is stored only as a BCrypt hash in the `users` table. Emails are co
 {"detail":"Email is already registered","instance":"/api/auth/register","status":409,"title":"Conflict"}
 ```
 
+Log in with the same email and password:
+
+```bash
+curl -i -X POST http://localhost:8080/api/auth/login \
+  -H "Content-Type: application/json" \
+  -d '{"email":"ann.smith@example.com","password":"correct-horse-battery"}'
+```
+
+The response is `200 OK` with a signed JWT that is valid for 3600 seconds:
+
+```json
+{"accessToken":"eyJraWQiOi...","tokenType":"Bearer","expiresIn":3600}
+```
+
+The token is signed with HS256 and contains the user id as `sub`, the user's roles as `roles`, and the times `iat` (issued at) and `exp` (expires at). A wrong password and an unknown email give the same answer:
+
+```json
+{"detail":"Invalid email or password","instance":"/api/auth/login","status":401,"title":"Unauthorized"}
+```
+
+Keep the token in a shell variable for the next examples:
+
+```bash
+TOKEN=<accessToken from the login response>
+```
+
 Create an application:
 
 ```bash
 curl -i -X POST http://localhost:8080/api/applications \
+  -H "Authorization: Bearer $TOKEN" \
   -H "Content-Type: application/json" \
   -d '{"company":"ACME Corp","role":"Backend Engineer","appliedDate":"2026-10-01","expectedSalaryCents":5000000,"salaryCurrency":"EUR","notes":"Referred by a friend"}'
 ```
@@ -149,6 +185,7 @@ Invalid input returns `400 Bad Request` with an `errors` object that maps each i
 
 ```bash
 curl -i -X POST http://localhost:8080/api/applications \
+  -H "Authorization: Bearer $TOKEN" \
   -H "Content-Type: application/json" \
   -d '{"company":"  ","role":"Backend Engineer","appliedDate":"2026-10-01","expectedSalaryCents":5000000,"salaryCurrency":"eur"}'
 ```
@@ -164,7 +201,7 @@ An unexpected server error returns `500 Internal Server Error` with the detail "
 Get one application:
 
 ```bash
-curl -i http://localhost:8080/api/applications/{id}
+curl -i -H "Authorization: Bearer $TOKEN" http://localhost:8080/api/applications/{id}
 ```
 
 List applications. All query parameters are optional and can be combined:
@@ -179,7 +216,7 @@ List applications. All query parameters are optional and can be combined:
 | `sort` | `field` or `field,asc` or `field,desc`; the fields are `appliedDate`, `company`, `status` and `createdAt` (default `createdAt,desc`); repeat the parameter to sort by more than one field |
 
 ```bash
-curl -i "http://localhost:8080/api/applications?status=INTERVIEWING&company=acme&page=0&size=5&sort=appliedDate,desc"
+curl -i -H "Authorization: Bearer $TOKEN" "http://localhost:8080/api/applications?status=INTERVIEWING&company=acme&page=0&size=5&sort=appliedDate,desc"
 ```
 
 The response is one page of results:
@@ -198,6 +235,7 @@ Update the details of an application:
 
 ```bash
 curl -i -X PUT http://localhost:8080/api/applications/{id} \
+  -H "Authorization: Bearer $TOKEN" \
   -H "Content-Type: application/json" \
   -d '{"company":"ACME Corp","role":"Backend Engineer","appliedDate":"2026-10-01","expectedSalaryCents":5500000,"salaryCurrency":"EUR","notes":"Recruiter call on Monday"}'
 ```
@@ -206,6 +244,7 @@ Change the status:
 
 ```bash
 curl -i -X PATCH http://localhost:8080/api/applications/{id}/status \
+  -H "Authorization: Bearer $TOKEN" \
   -H "Content-Type: application/json" \
   -d '{"status":"INTERVIEWING"}'
 ```
@@ -223,6 +262,7 @@ Any other change returns `409 Conflict`:
 
 ```bash
 curl -i -X PATCH http://localhost:8080/api/applications/{id}/status \
+  -H "Authorization: Bearer $TOKEN" \
   -H "Content-Type: application/json" \
   -d '{"status":"APPLIED"}'
 ```
@@ -234,7 +274,7 @@ curl -i -X PATCH http://localhost:8080/api/applications/{id}/status \
 Every status an application has had is stored in the `application_status_changes` table: one entry when it is created and one for each allowed status change. Get the history, oldest first:
 
 ```bash
-curl -i http://localhost:8080/api/applications/{id}/history
+curl -i -H "Authorization: Bearer $TOKEN" http://localhost:8080/api/applications/{id}/history
 ```
 
 ```json
@@ -244,7 +284,7 @@ curl -i http://localhost:8080/api/applications/{id}/history
 Get statistics over all applications:
 
 ```bash
-curl -i http://localhost:8080/api/applications/stats
+curl -i -H "Authorization: Bearer $TOKEN" http://localhost:8080/api/applications/stats
 ```
 
 ```json
@@ -256,8 +296,8 @@ curl -i http://localhost:8080/api/applications/stats
 Delete an application. Its status history is deleted with it. The response is `204 No Content`, and a later `GET` returns `404 Not Found`:
 
 ```bash
-curl -i -X DELETE http://localhost:8080/api/applications/{id}
-curl -i http://localhost:8080/api/applications/{id}
+curl -i -H "Authorization: Bearer $TOKEN" -X DELETE http://localhost:8080/api/applications/{id}
+curl -i -H "Authorization: Bearer $TOKEN" http://localhost:8080/api/applications/{id}
 ```
 
 Errors use the Problem Details format (RFC 9457) with the content type `application/problem+json`:
@@ -274,16 +314,16 @@ Run all tests and build the coverage report:
 ./mvnw --batch-mode clean verify
 ```
 
-Docker must be running, because some tests start a PostgreSQL 17 container with Testcontainers.
+Docker must be running, because some tests start a PostgreSQL 17 container with Testcontainers. The tests use a fixed test-only `jobtrackr.jwt.secret` from `src/test/resources/application.properties`, so `JWT_SECRET` is not needed to run them.
 
 | Kind | Classes | What runs |
 |---|---|---|
 | Unit tests | `model`, `dto` and `service` tests | Plain JUnit tests; the service tests replace the repositories with Mockito mocks |
 | Repository tests | `repository` tests | `@DataJpaTest` against PostgreSQL in Testcontainers, with the Flyway migrations |
-| Controller tests | `ApplicationControllerTest`, `AuthControllerTest` | `@WebMvcTest` with MockMvc, the security configuration and a mocked service, no database |
+| Controller tests | `ApplicationControllerTest`, `AuthControllerTest` | `@WebMvcTest` with MockMvc, the security configuration and a mocked service, no database; requests get a test JWT from Spring Security's `jwt()` request post processor |
 | Context test | `JobtrackrApiApplicationTests` | Starts the application context against PostgreSQL in Testcontainers |
-| Integration test | `ApplicationApiIntegrationTest` | The whole application on a random port against PostgreSQL in Testcontainers, called over HTTP with `RestTestClient`: create, get, update, change status, history, statistics and delete |
-| Integration test | `AuthApiIntegrationTest` | Registration over HTTP against PostgreSQL, the stored BCrypt hash, duplicate emails in another case, and which paths are public |
+| Integration test | `ApplicationApiIntegrationTest` | The whole application on a random port against PostgreSQL in Testcontainers, called over HTTP with `RestTestClient`: register, log in, then create, get, update, change status, history, statistics and delete with the token |
+| Integration test | `AuthApiIntegrationTest` | Registration and login over HTTP against PostgreSQL, the stored BCrypt hash, duplicate emails in another case, the token claims, the same 401 for a wrong password and an unknown email, requests without a token or with a broken, expired or foreign token, and which paths are public |
 
 Run one test class:
 
