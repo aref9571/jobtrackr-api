@@ -86,12 +86,12 @@ class AuthApiIntegrationTest {
         restClient.get().uri("/actuator/health").exchange().expectStatus().isOk();
         restClient.get().uri("/v3/api-docs").exchange().expectStatus().isOk();
         restClient.get().uri("/swagger-ui/index.html").exchange().expectStatus().isOk();
-        restClient.get().uri("/api/applications").exchange().expectStatus().isOk();
     }
 
     @Test
     void otherPaths_withoutCredentials_areRejected() {
-        restClient.get().uri("/actuator").exchange().expectStatus().isForbidden();
+        restClient.get().uri("/actuator").exchange().expectStatus().isUnauthorized();
+        restClient.get().uri("/api/applications").exchange().expectStatus().isUnauthorized();
     }
 
     private RestTestClient.ResponseSpec register(String email) {

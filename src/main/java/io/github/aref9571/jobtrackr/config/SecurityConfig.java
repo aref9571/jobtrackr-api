@@ -1,6 +1,8 @@
 package io.github.aref9571.jobtrackr.config;
 
 import io.github.aref9571.jobtrackr.security.TokenService;
+import io.swagger.v3.oas.annotations.enums.SecuritySchemeType;
+import io.swagger.v3.oas.annotations.security.SecurityScheme;
 import org.springframework.boot.context.properties.EnableConfigurationProperties;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
@@ -28,7 +30,14 @@ import java.nio.charset.StandardCharsets;
 
 @Configuration
 @EnableConfigurationProperties(JwtProperties.class)
+@SecurityScheme(
+        name = SecurityConfig.BEARER_AUTH,
+        type = SecuritySchemeType.HTTP,
+        scheme = "bearer",
+        bearerFormat = "JWT")
 public class SecurityConfig {
+
+    public static final String BEARER_AUTH = "bearerAuth";
 
     private static final String[] PUBLIC_PATHS = {
             "/api/auth/**",
@@ -38,19 +47,18 @@ public class SecurityConfig {
             "/v3/api-docs/**"
     };
 
-    private static final String[] TEMPORARILY_PUBLIC_PATHS = {
-            "/api/applications/**"
-    };
-
     @Bean
-    public SecurityFilterChain securityFilterChain(HttpSecurity http) throws Exception {
+    public SecurityFilterChain securityFilterChain(HttpSecurity http,
+                                                   JwtAuthenticationConverter jwtAuthenticationConverter)
+            throws Exception {
         http
                 .csrf(AbstractHttpConfigurer::disable)
                 .sessionManagement(session -> session.sessionCreationPolicy(SessionCreationPolicy.STATELESS))
                 .authorizeHttpRequests(authorize -> authorize
                         .requestMatchers(PUBLIC_PATHS).permitAll()
-                        .requestMatchers(TEMPORARILY_PUBLIC_PATHS).permitAll()
-                        .anyRequest().authenticated());
+                        .anyRequest().authenticated())
+                .oauth2ResourceServer(oauth2 -> oauth2
+                        .jwt(jwt -> jwt.jwtAuthenticationConverter(jwtAuthenticationConverter)));
         return http.build();
     }
 

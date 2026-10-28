@@ -5,9 +5,13 @@ import io.github.aref9571.jobtrackr.dto.ApplicationStatisticsResponse;
 import io.github.aref9571.jobtrackr.dto.ChangeStatusRequest;
 import io.github.aref9571.jobtrackr.dto.CompanyCount;
 import io.github.aref9571.jobtrackr.dto.CreateApplicationRequest;
+import io.github.aref9571.jobtrackr.dto.LoginRequest;
+import io.github.aref9571.jobtrackr.dto.LoginResponse;
+import io.github.aref9571.jobtrackr.dto.RegisterRequest;
 import io.github.aref9571.jobtrackr.dto.StatusChangeResponse;
 import io.github.aref9571.jobtrackr.dto.UpdateApplicationRequest;
 import io.github.aref9571.jobtrackr.model.ApplicationStatus;
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.resttestclient.autoconfigure.AutoConfigureRestTestClient;
@@ -36,6 +40,32 @@ class ApplicationApiIntegrationTest {
     @Autowired
     private RestTestClient restClient;
 
+    private RestTestClient userClient;
+
+    @BeforeEach
+    void registerAndLogIn() {
+        String email = "frank@example.com";
+        String password = "correct-horse-battery";
+        restClient.post().uri("/api/auth/register")
+                .contentType(MediaType.APPLICATION_JSON)
+                .body(new RegisterRequest(email, password))
+                .exchange()
+                .expectStatus().isCreated();
+
+        LoginResponse login = restClient.post().uri("/api/auth/login")
+                .contentType(MediaType.APPLICATION_JSON)
+                .body(new LoginRequest(email, password))
+                .exchange()
+                .expectStatus().isOk()
+                .expectBody(LoginResponse.class)
+                .returnResult()
+                .getResponseBody();
+
+        userClient = restClient.mutate()
+                .defaultHeaders(headers -> headers.setBearerAuth(login.accessToken()))
+                .build();
+    }
+
     @Test
     void applicationLifecycle_fromCreateToDelete_worksAgainstDatabase() {
         CreateApplicationRequest createRequest = new CreateApplicationRequest(
@@ -43,7 +73,7 @@ class ApplicationApiIntegrationTest {
         UpdateApplicationRequest updateRequest = new UpdateApplicationRequest(
                 "ACME Corp", "Senior Backend Engineer", APPLIED_DATE, 5_500_000L, "EUR", "Recruiter call on Monday");
 
-        EntityExchangeResult<ApplicationResponse> createResult = restClient.post().uri("/api/applications")
+        EntityExchangeResult<ApplicationResponse> createResult = userClient.post().uri("/api/applications")
                 .contentType(MediaType.APPLICATION_JSON)
                 .body(createRequest)
                 .exchange()
@@ -60,7 +90,7 @@ class ApplicationApiIntegrationTest {
 
         assertThat(loaded).isEqualTo(created);
 
-        ApplicationResponse updated = restClient.put().uri("/api/applications/{id}", id)
+        ApplicationResponse updated = userClient.put().uri("/api/applications/{id}", id)
                 .contentType(MediaType.APPLICATION_JSON)
                 .body(updateRequest)
                 .exchange()
@@ -81,7 +111,7 @@ class ApplicationApiIntegrationTest {
         assertThat(offer.status()).isEqualTo(ApplicationStatus.OFFER);
         assertThat(getApplication(id).status()).isEqualTo(ApplicationStatus.OFFER);
 
-        List<StatusChangeResponse> history = restClient.get().uri("/api/applications/{id}/history", id)
+        List<StatusChangeResponse> history = userClient.get().uri("/api/applications/{id}/history", id)
                 .exchange()
                 .expectStatus().isOk()
                 .expectBody(new ParameterizedTypeReference<List<StatusChangeResponse>>() {
@@ -96,7 +126,7 @@ class ApplicationApiIntegrationTest {
                         tuple(ApplicationStatus.APPLIED, ApplicationStatus.INTERVIEWING),
                         tuple(ApplicationStatus.INTERVIEWING, ApplicationStatus.OFFER));
 
-        ApplicationStatisticsResponse statistics = restClient.get().uri("/api/applications/stats")
+        ApplicationStatisticsResponse statistics = userClient.get().uri("/api/applications/stats")
                 .exchange()
                 .expectStatus().isOk()
                 .expectBody(ApplicationStatisticsResponse.class)
@@ -110,21 +140,21 @@ class ApplicationApiIntegrationTest {
                 .hasSize(ApplicationStatus.values().length);
         assertThat(statistics.topCompanies()).containsExactly(new CompanyCount("acme corp", 1));
 
-        restClient.delete().uri("/api/applications/{id}", id)
+        userClient.delete().uri("/api/applications/{id}", id)
                 .exchange()
                 .expectStatus().isNoContent();
 
-        restClient.get().uri("/api/applications/{id}", id)
+        userClient.get().uri("/api/applications/{id}", id)
                 .exchange()
                 .expectStatus().isNotFound()
                 .expectHeader().contentType(MediaType.APPLICATION_PROBLEM_JSON);
-        restClient.get().uri("/api/applications/{id}/history", id)
+        userClient.get().uri("/api/applications/{id}/history", id)
                 .exchange()
                 .expectStatus().isNotFound();
     }
 
     private ApplicationResponse getApplication(UUID id) {
-        return restClient.get().uri("/api/applications/{id}", id)
+        return userClient.get().uri("/api/applications/{id}", id)
                 .exchange()
                 .expectStatus().isOk()
                 .expectBody(ApplicationResponse.class)
@@ -133,7 +163,7 @@ class ApplicationApiIntegrationTest {
     }
 
     private ApplicationResponse changeStatus(UUID id, ApplicationStatus status) {
-        return restClient.patch().uri("/api/applications/{id}/status", id)
+        return userClient.patch().uri("/api/applications/{id}/status", id)
                 .contentType(MediaType.APPLICATION_JSON)
                 .body(new ChangeStatusRequest(status))
                 .exchange()

@@ -1,5 +1,6 @@
 package io.github.aref9571.jobtrackr.controller;
 
+import io.github.aref9571.jobtrackr.config.SecurityConfig;
 import io.github.aref9571.jobtrackr.dto.ApplicationResponse;
 import io.github.aref9571.jobtrackr.dto.ApplicationSearchCriteria;
 import io.github.aref9571.jobtrackr.dto.ApplicationStatisticsResponse;
@@ -11,6 +12,7 @@ import io.github.aref9571.jobtrackr.dto.UpdateApplicationRequest;
 import io.github.aref9571.jobtrackr.exception.InvalidSearchParameterException;
 import io.github.aref9571.jobtrackr.model.ApplicationStatus;
 import io.github.aref9571.jobtrackr.service.ApplicationService;
+import io.swagger.v3.oas.annotations.security.SecurityRequirement;
 import jakarta.validation.Valid;
 import org.springdoc.core.annotations.ParameterObject;
 import org.springframework.data.domain.Pageable;
@@ -39,6 +41,7 @@ import java.util.UUID;
 
 @RestController
 @RequestMapping("/api/applications")
+@SecurityRequirement(name = SecurityConfig.BEARER_AUTH)
 public class ApplicationController {
 
     private static final List<String> SORTABLE_FIELDS = List.of("appliedDate", "company", "status", "createdAt");
