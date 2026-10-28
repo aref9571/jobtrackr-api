@@ -86,6 +86,21 @@ class ApplicationControllerTest {
     }
 
     @Test
+    void anyEndpoint_withoutToken_returns401WithoutCallingService() throws Exception {
+        mockMvc.perform(get("/api/applications"))
+                .andExpect(status().isUnauthorized())
+                .andExpect(header().string("WWW-Authenticate", containsString("Bearer")));
+        mockMvc.perform(post("/api/applications")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(APPLICATION_JSON))
+                .andExpect(status().isUnauthorized());
+        mockMvc.perform(delete("/api/applications/{id}", ID))
+                .andExpect(status().isUnauthorized());
+
+        verifyNoInteractions(applicationService);
+    }
+
+    @Test
     void createApplication_validRequest_returns201WithLocationAndBody() throws Exception {
         CreateApplicationRequest request = new CreateApplicationRequest(
                 "ACME Corp", "Backend Engineer", APPLIED_DATE, 5_000_000L, "EUR", "Referred by a friend");

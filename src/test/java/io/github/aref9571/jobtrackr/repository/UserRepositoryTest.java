@@ -47,6 +47,14 @@ class UserRepositoryTest {
     }
 
     @Test
+    void findByEmail_registeredAndUnknownEmail_returnsUserOnlyForRegistered() {
+        User user = userRepository.saveAndFlush(new User("ann@example.com", PASSWORD_HASH, Role.USER));
+
+        assertThat(userRepository.findByEmail("ann@example.com")).map(User::getId).contains(user.getId());
+        assertThat(userRepository.findByEmail("bob@example.com")).isEmpty();
+    }
+
+    @Test
     void saveAndFlush_sameEmailTwice_isRejectedByUniqueConstraint() {
         userRepository.saveAndFlush(new User("ann@example.com", PASSWORD_HASH, Role.USER));
 

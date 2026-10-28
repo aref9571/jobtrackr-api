@@ -1,6 +1,8 @@
 package io.github.aref9571.jobtrackr.controller;
 
 import io.github.aref9571.jobtrackr.config.SecurityConfig;
+import io.github.aref9571.jobtrackr.dto.LoginRequest;
+import io.github.aref9571.jobtrackr.dto.LoginResponse;
 import io.github.aref9571.jobtrackr.dto.RegisterRequest;
 import io.github.aref9571.jobtrackr.dto.RegisterResponse;
 import io.github.aref9571.jobtrackr.exception.EmailAlreadyUsedException;
@@ -10,6 +12,7 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.webmvc.test.autoconfigure.WebMvcTest;
 import org.springframework.context.annotation.Import;
 import org.springframework.http.MediaType;
+import org.springframework.security.authentication.BadCredentialsException;
 import org.springframework.security.core.userdetails.UserDetailsService;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.test.web.servlet.MockMvc;
@@ -50,7 +53,7 @@ class AuthControllerTest {
 
         mockMvc.perform(post("/api/auth/register")
                         .contentType(MediaType.APPLICATION_JSON)
-                        .content(registerJson("ann@example.com", PASSWORD)))
+                        .content(credentialsJson("ann@example.com", PASSWORD)))
                 .andExpect(status().isCreated())
                 .andExpect(jsonPath("$.*", hasSize(2)))
                 .andExpect(jsonPath("$.id").value(ID.toString()))
@@ -65,11 +68,11 @@ class AuthControllerTest {
 
         mockMvc.perform(post("/api/auth/register")
                         .contentType(MediaType.APPLICATION_JSON)
-                        .content(registerJson("ann@example.com", "a".repeat(8))))
+                        .content(credentialsJson("ann@example.com", "a".repeat(8))))
                 .andExpect(status().isCreated());
         mockMvc.perform(post("/api/auth/register")
                         .contentType(MediaType.APPLICATION_JSON)
-                        .content(registerJson("ann@example.com", "a".repeat(72))))
+                        .content(credentialsJson("ann@example.com", "a".repeat(72))))
                 .andExpect(status().isCreated());
     }
 
@@ -80,7 +83,7 @@ class AuthControllerTest {
 
         mockMvc.perform(post("/api/auth/register")
                         .contentType(MediaType.APPLICATION_JSON)
-                        .content(registerJson("ANN@example.com", PASSWORD)))
+                        .content(credentialsJson("ANN@example.com", PASSWORD)))
                 .andExpect(status().isConflict())
                 .andExpect(content().contentType(MediaType.APPLICATION_PROBLEM_JSON))
                 .andExpect(jsonPath("$.status").value(409))
@@ -91,7 +94,7 @@ class AuthControllerTest {
     void register_invalidEmail_returns400WithFieldError() throws Exception {
         mockMvc.perform(post("/api/auth/register")
                         .contentType(MediaType.APPLICATION_JSON)
-                        .content(registerJson("not-an-email", PASSWORD)))
+                        .content(credentialsJson("not-an-email", PASSWORD)))
                 .andExpect(status().isBadRequest())
                 .andExpect(content().contentType(MediaType.APPLICATION_PROBLEM_JSON))
                 .andExpect(jsonPath("$.errors.email").value("must be a well-formed email address"));
@@ -103,7 +106,7 @@ class AuthControllerTest {
     void register_emailWithSurroundingSpaces_returns400WithFieldError() throws Exception {
         mockMvc.perform(post("/api/auth/register")
                         .contentType(MediaType.APPLICATION_JSON)
-                        .content(registerJson(" ann@example.com ", PASSWORD)))
+                        .content(credentialsJson(" ann@example.com ", PASSWORD)))
                 .andExpect(status().isBadRequest())
                 .andExpect(jsonPath("$.errors.email").value("must be a well-formed email address"));
 
@@ -116,7 +119,7 @@ class AuthControllerTest {
 
         mockMvc.perform(post("/api/auth/register")
                         .contentType(MediaType.APPLICATION_JSON)
-                        .content(registerJson(email, PASSWORD)))
+                        .content(credentialsJson(email, PASSWORD)))
                 .andExpect(status().isBadRequest())
                 .andExpect(jsonPath("$.errors.email").exists());
 
@@ -139,7 +142,7 @@ class AuthControllerTest {
     void register_tooShortPassword_returns400WithFieldError() throws Exception {
         mockMvc.perform(post("/api/auth/register")
                         .contentType(MediaType.APPLICATION_JSON)
-                        .content(registerJson("ann@example.com", "a".repeat(7))))
+                        .content(credentialsJson("ann@example.com", "a".repeat(7))))
                 .andExpect(status().isBadRequest())
                 .andExpect(jsonPath("$.errors.password").value("size must be between 8 and 72"));
 
@@ -150,14 +153,56 @@ class AuthControllerTest {
     void register_tooLongPassword_returns400WithFieldError() throws Exception {
         mockMvc.perform(post("/api/auth/register")
                         .contentType(MediaType.APPLICATION_JSON)
-                        .content(registerJson("ann@example.com", "a".repeat(73))))
+                        .content(credentialsJson("ann@example.com", "a".repeat(73))))
                 .andExpect(status().isBadRequest())
                 .andExpect(jsonPath("$.errors.password").value("size must be between 8 and 72"));
 
         verifyNoInteractions(authService);
     }
 
-    private static String registerJson(String email, String password) {
+    @Test
+    void login_validCredentials_returns200WithBearerToken() throws Exception {
+        LoginRequest request = new LoginRequest("ann@example.com", PASSWORD);
+        when(authService.login(request)).thenReturn(new LoginResponse("header.payload.signature", "Bearer", 3600));
+
+        mockMvc.perform(post("/api/auth/login")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(credentialsJson("ann@example.com", PASSWORD)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.*", hasSize(3)))
+                .andExpect(jsonPath("$.accessToken").value("header.payload.signature"))
+                .andExpect(jsonPath("$.tokenType").value("Bearer"))
+                .andExpect(jsonPath("$.expiresIn").value(3600));
+
+        verify(authService).login(request);
+    }
+
+    @Test
+    void login_badCredentials_returns401ProblemDetail() throws Exception {
+        when(authService.login(any(LoginRequest.class))).thenThrow(new BadCredentialsException("Bad credentials"));
+
+        mockMvc.perform(post("/api/auth/login")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(credentialsJson("ann@example.com", "wrong-password")))
+                .andExpect(status().isUnauthorized())
+                .andExpect(content().contentType(MediaType.APPLICATION_PROBLEM_JSON))
+                .andExpect(jsonPath("$.status").value(401))
+                .andExpect(jsonPath("$.detail").value("Invalid email or password"));
+    }
+
+    @Test
+    void login_emptyBody_returns400WithBothFieldErrors() throws Exception {
+        mockMvc.perform(post("/api/auth/login")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{}"))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.errors.email").value("must not be blank"))
+                .andExpect(jsonPath("$.errors.password").value("must not be blank"));
+
+        verifyNoInteractions(authService);
+    }
+
+    private static String credentialsJson(String email, String password) {
         return """
                 {
                   "email": "%s",

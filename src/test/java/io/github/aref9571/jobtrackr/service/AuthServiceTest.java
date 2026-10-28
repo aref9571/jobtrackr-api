@@ -1,5 +1,7 @@
 package io.github.aref9571.jobtrackr.service;
 
+import io.github.aref9571.jobtrackr.dto.LoginRequest;
+import io.github.aref9571.jobtrackr.dto.LoginResponse;
 import io.github.aref9571.jobtrackr.dto.RegisterRequest;
 import io.github.aref9571.jobtrackr.dto.RegisterResponse;
 import io.github.aref9571.jobtrackr.exception.EmailAlreadyUsedException;
@@ -14,14 +16,20 @@ import org.mockito.ArgumentCaptor;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.security.authentication.AuthenticationManager;
+import org.springframework.security.authentication.BadCredentialsException;
+import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
+import org.springframework.security.core.Authentication;
 import org.springframework.security.crypto.bcrypt.BCryptPasswordEncoder;
 import org.springframework.security.crypto.password.PasswordEncoder;
+
+import java.util.Optional;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 
 @ExtendWith(MockitoExtension.class)
@@ -114,5 +122,32 @@ class AuthServiceTest {
         assertThatThrownBy(() -> service.register(new RegisterRequest("ANN@Example.com", PASSWORD)))
                 .isInstanceOf(EmailAlreadyUsedException.class);
         verify(userRepository, never()).saveAndFlush(any(User.class));
+    }
+
+    @Test
+    void login_validCredentials_authenticatesNormalizedEmailAndReturnsToken() {
+        User user = new User("ann@example.com", "$2a$10$hash", Role.USER);
+        LoginResponse token = new LoginResponse("header.payload.signature", "Bearer", 3600);
+        when(userRepository.findByEmail("ann@example.com")).thenReturn(Optional.of(user));
+        when(tokenService.createToken(user)).thenReturn(token);
+
+        LoginResponse response = service.login(new LoginRequest(" Ann@Example.COM ", PASSWORD));
+
+        ArgumentCaptor<Authentication> attempt = ArgumentCaptor.forClass(Authentication.class);
+        verify(authenticationManager).authenticate(attempt.capture());
+        assertThat(attempt.getValue()).isInstanceOf(UsernamePasswordAuthenticationToken.class);
+        assertThat(attempt.getValue().getName()).isEqualTo("ann@example.com");
+        assertThat(attempt.getValue().getCredentials()).isEqualTo(PASSWORD);
+        assertThat(response).isEqualTo(token);
+    }
+
+    @Test
+    void login_badCredentials_throwsExceptionWithoutCreatingToken() {
+        when(authenticationManager.authenticate(any(Authentication.class)))
+                .thenThrow(new BadCredentialsException("Bad credentials"));
+
+        assertThatThrownBy(() -> service.login(new LoginRequest("ann@example.com", "wrong-password")))
+                .isInstanceOf(BadCredentialsException.class);
+        verifyNoInteractions(tokenService);
     }
 }
