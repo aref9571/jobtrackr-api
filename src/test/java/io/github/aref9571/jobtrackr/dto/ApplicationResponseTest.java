@@ -5,15 +5,19 @@ import io.github.aref9571.jobtrackr.model.JobApplication;
 import org.junit.jupiter.api.Test;
 
 import java.time.LocalDate;
+import java.util.UUID;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
 class ApplicationResponseTest {
 
+    private static final UUID OWNER_ID = UUID.fromString("7c9e6679-7425-40de-944b-e07fc1f90ae7");
+
     @Test
     void from_application_copiesAllFields() {
         JobApplication application = new JobApplication(
-                "ACME Corp", "Backend Engineer", LocalDate.of(2026, 10, 1), 5_000_000L, "EUR", "Referred by a friend");
+                OWNER_ID, "ACME Corp", "Backend Engineer", LocalDate.of(2026, 10, 1),
+                5_000_000L, "EUR", "Referred by a friend");
         application.changeStatus(ApplicationStatus.INTERVIEWING);
 
         ApplicationResponse response = ApplicationResponse.from(application);

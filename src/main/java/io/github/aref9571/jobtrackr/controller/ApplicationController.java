@@ -21,6 +21,8 @@ import org.springframework.data.web.PageableDefault;
 import org.springframework.format.annotation.DateTimeFormat;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
+import org.springframework.security.core.annotation.AuthenticationPrincipal;
+import org.springframework.security.oauth2.jwt.Jwt;
 import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PatchMapping;
@@ -54,8 +56,9 @@ public class ApplicationController {
 
     @PostMapping
     public ResponseEntity<ApplicationResponse> createApplication(
+            @AuthenticationPrincipal Jwt jwt,
             @Valid @RequestBody CreateApplicationRequest request) {
-        ApplicationResponse response = applicationService.createApplication(request);
+        ApplicationResponse response = applicationService.createApplication(ownerId(jwt), request);
         URI location = ServletUriComponentsBuilder.fromCurrentRequest()
                 .path("/{id}")
                 .buildAndExpand(response.id())
@@ -107,6 +110,10 @@ public class ApplicationController {
     @ResponseStatus(HttpStatus.NO_CONTENT)
     public void deleteApplication(@PathVariable UUID id) {
         applicationService.deleteApplication(id);
+    }
+
+    private static UUID ownerId(Jwt jwt) {
+        return UUID.fromString(jwt.getSubject());
     }
 
     private static void requireValidDateRange(LocalDate appliedFrom, LocalDate appliedTo) {

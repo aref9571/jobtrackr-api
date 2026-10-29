@@ -5,14 +5,17 @@ import org.junit.jupiter.api.Test;
 import java.time.Instant;
 import java.time.LocalDate;
 import java.time.temporal.ChronoUnit;
+import java.util.UUID;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 class StatusChangeTest {
 
+    private static final UUID OWNER_ID = UUID.fromString("7c9e6679-7425-40de-944b-e07fc1f90ae7");
+
     private static final JobApplication APPLICATION =
-            new JobApplication("ACME Corp", "Backend Engineer", LocalDate.of(2026, 10, 1), null, null, null);
+            new JobApplication(OWNER_ID, "ACME Corp", "Backend Engineer", LocalDate.of(2026, 10, 1), null, null, null);
 
     @Test
     void constructor_validValues_createsStatusChange() {

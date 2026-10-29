@@ -3,7 +3,10 @@ package io.github.aref9571.jobtrackr.repository;
 import io.github.aref9571.jobtrackr.TestcontainersConfiguration;
 import io.github.aref9571.jobtrackr.model.ApplicationStatus;
 import io.github.aref9571.jobtrackr.model.JobApplication;
+import io.github.aref9571.jobtrackr.model.Role;
 import io.github.aref9571.jobtrackr.model.StatusChange;
+import io.github.aref9571.jobtrackr.model.User;
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.data.jpa.test.autoconfigure.DataJpaTest;
@@ -12,6 +15,7 @@ import org.springframework.context.annotation.Import;
 
 import java.time.LocalDate;
 import java.util.List;
+import java.util.UUID;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.tuple;
@@ -21,6 +25,7 @@ import static org.assertj.core.api.Assertions.tuple;
 class StatusChangeRepositoryTest {
 
     private static final LocalDate APPLIED_DATE = LocalDate.of(2026, 10, 1);
+    private static final String PASSWORD_HASH = "$2a$10$abcdefghijklmnopqrstuuS7Ir1Dx5l6xNQ7r5BkcGcCL6kK1yJ0O";
 
     @Autowired
     private StatusChangeRepository statusChangeRepository;
@@ -30,6 +35,16 @@ class StatusChangeRepositoryTest {
 
     @Autowired
     private TestEntityManager entityManager;
+
+    @Autowired
+    private UserRepository userRepository;
+
+    private UUID ownerId;
+
+    @BeforeEach
+    void saveOwner() {
+        ownerId = userRepository.saveAndFlush(new User("ann@example.com", PASSWORD_HASH, Role.USER)).getId();
+    }
 
     @Test
     void findByApplicationId_severalChanges_returnsOnlyThatApplicationOldestFirst() {
@@ -92,7 +107,7 @@ class StatusChangeRepositoryTest {
 
     private JobApplication saveApplication(String company) {
         return applicationRepository.saveAndFlush(
-                new JobApplication(company, "Backend Engineer", APPLIED_DATE, null, null, null));
+                new JobApplication(ownerId, company, "Backend Engineer", APPLIED_DATE, null, null, null));
     }
 
     private StatusChange saveChange(JobApplication application, ApplicationStatus oldStatus,

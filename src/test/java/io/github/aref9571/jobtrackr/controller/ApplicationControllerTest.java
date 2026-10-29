@@ -25,6 +25,7 @@ import org.springframework.data.domain.Pageable;
 import org.springframework.data.domain.Sort;
 import org.springframework.http.MediaType;
 import org.springframework.security.core.userdetails.UserDetailsService;
+import org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.JwtRequestPostProcessor;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.test.web.servlet.MockMvc;
 
@@ -62,6 +63,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 class ApplicationControllerTest {
 
     private static final UUID ID = UUID.fromString("3f2b8c1e-6d4a-4f7b-9a1e-2c5d8e7f6a01");
+    private static final UUID OWNER_ID = UUID.fromString("7c9e6679-7425-40de-944b-e07fc1f90ae7");
     private static final LocalDate APPLIED_DATE = LocalDate.of(2026, 10, 1);
     private static final Instant CREATED_AT = Instant.parse("2026-10-01T09:30:00Z");
 
@@ -104,10 +106,10 @@ class ApplicationControllerTest {
     void createApplication_validRequest_returns201WithLocationAndBody() throws Exception {
         CreateApplicationRequest request = new CreateApplicationRequest(
                 "ACME Corp", "Backend Engineer", APPLIED_DATE, 5_000_000L, "EUR", "Referred by a friend");
-        when(applicationService.createApplication(request)).thenReturn(response(ApplicationStatus.APPLIED));
+        when(applicationService.createApplication(OWNER_ID, request)).thenReturn(response(ApplicationStatus.APPLIED));
 
         mockMvc.perform(post("/api/applications")
-                        .with(jwt())
+                        .with(userToken())
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(APPLICATION_JSON))
                 .andExpect(status().isCreated())
@@ -122,18 +124,18 @@ class ApplicationControllerTest {
                 .andExpect(jsonPath("$.notes").value("Referred by a friend"))
                 .andExpect(jsonPath("$.createdAt").value("2026-10-01T09:30:00Z"));
 
-        verify(applicationService).createApplication(request);
+        verify(applicationService).createApplication(OWNER_ID, request);
     }
 
     @Test
     void createApplication_duplicate_returns409ProblemDetail() throws Exception {
         String message = "Application for Backend Engineer at ACME Corp already exists";
-        when(applicationService.createApplication(new CreateApplicationRequest(
+        when(applicationService.createApplication(OWNER_ID, new CreateApplicationRequest(
                 "ACME Corp", "Backend Engineer", APPLIED_DATE, 5_000_000L, "EUR", "Referred by a friend")))
                 .thenThrow(new DuplicateApplicationException(message));
 
         mockMvc.perform(post("/api/applications")
-                        .with(jwt())
+                        .with(userToken())
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(APPLICATION_JSON))
                 .andExpect(status().isConflict())
@@ -147,7 +149,7 @@ class ApplicationControllerTest {
     @Test
     void createApplication_blankCompany_returns400WithFieldError() throws Exception {
         mockMvc.perform(post("/api/applications")
-                        .with(jwt())
+                        .with(userToken())
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(APPLICATION_JSON.replace("\"ACME Corp\"", "\"  \"")))
                 .andExpect(status().isBadRequest())
@@ -164,7 +166,7 @@ class ApplicationControllerTest {
     @Test
     void createApplication_emptyBody_returns400WithAllRequiredFields() throws Exception {
         mockMvc.perform(post("/api/applications")
-                        .with(jwt())
+                        .with(userToken())
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("{}"))
                 .andExpect(status().isBadRequest())
@@ -187,7 +189,7 @@ class ApplicationControllerTest {
                 """.formatted("c".repeat(101), "r".repeat(101), "n".repeat(1001));
 
         mockMvc.perform(post("/api/applications")
-                        .with(jwt())
+                        .with(userToken())
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(json))
                 .andExpect(status().isBadRequest())
@@ -203,7 +205,7 @@ class ApplicationControllerTest {
         String tomorrow = LocalDate.now().plusDays(1).toString();
 
         mockMvc.perform(post("/api/applications")
-                        .with(jwt())
+                        .with(userToken())
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(APPLICATION_JSON.replace("2026-10-01", tomorrow)))
                 .andExpect(status().isBadRequest())
@@ -215,7 +217,7 @@ class ApplicationControllerTest {
     @Test
     void createApplication_negativeSalary_returns400WithFieldError() throws Exception {
         mockMvc.perform(post("/api/applications")
-                        .with(jwt())
+                        .with(userToken())
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(APPLICATION_JSON.replace("5000000", "-1")))
                 .andExpect(status().isBadRequest())
@@ -232,7 +234,7 @@ class ApplicationControllerTest {
                 """;
 
         mockMvc.perform(post("/api/applications")
-                        .with(jwt())
+                        .with(userToken())
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(json))
                 .andExpect(status().isBadRequest())
@@ -250,7 +252,7 @@ class ApplicationControllerTest {
                 """;
 
         mockMvc.perform(post("/api/applications")
-                        .with(jwt())
+                        .with(userToken())
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(json))
                 .andExpect(status().isBadRequest())
@@ -263,7 +265,7 @@ class ApplicationControllerTest {
     @Test
     void createApplication_lowerCaseCurrency_returns400WithFieldError() throws Exception {
         mockMvc.perform(post("/api/applications")
-                        .with(jwt())
+                        .with(userToken())
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(APPLICATION_JSON.replace("\"EUR\"", "\"eur\"")))
                 .andExpect(status().isBadRequest())
@@ -276,12 +278,12 @@ class ApplicationControllerTest {
     @Test
     void createApplication_unknownCurrencyCode_returns400ProblemDetail() throws Exception {
         String message = "salaryCurrency must be a three-letter upper-case ISO 4217 code";
-        when(applicationService.createApplication(new CreateApplicationRequest(
+        when(applicationService.createApplication(OWNER_ID, new CreateApplicationRequest(
                 "ACME Corp", "Backend Engineer", APPLIED_DATE, 5_000_000L, "XYZ", "Referred by a friend")))
                 .thenThrow(new IllegalArgumentException(message));
 
         mockMvc.perform(post("/api/applications")
-                        .with(jwt())
+                        .with(userToken())
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(APPLICATION_JSON.replace("\"EUR\"", "\"XYZ\"")))
                 .andExpect(status().isBadRequest())
@@ -293,7 +295,7 @@ class ApplicationControllerTest {
     @Test
     void createApplication_malformedJson_returns400ProblemDetail() throws Exception {
         mockMvc.perform(post("/api/applications")
-                        .with(jwt())
+                        .with(userToken())
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("{\"company\": \"ACME Corp\","))
                 .andExpect(status().isBadRequest())
@@ -310,7 +312,7 @@ class ApplicationControllerTest {
     void getApplication_existingId_returns200WithApplication() throws Exception {
         when(applicationService.getApplication(ID)).thenReturn(response(ApplicationStatus.INTERVIEWING));
 
-        mockMvc.perform(get("/api/applications/{id}", ID).with(jwt()))
+        mockMvc.perform(get("/api/applications/{id}", ID).with(userToken()))
                 .andExpect(status().isOk())
                 .andExpect(content().contentType(MediaType.APPLICATION_JSON))
                 .andExpect(jsonPath("$.id").value(ID.toString()))
@@ -322,7 +324,7 @@ class ApplicationControllerTest {
         String message = "No application found with id: " + ID;
         when(applicationService.getApplication(ID)).thenThrow(new ApplicationNotFoundException(message));
 
-        mockMvc.perform(get("/api/applications/{id}", ID).with(jwt()))
+        mockMvc.perform(get("/api/applications/{id}", ID).with(userToken()))
                 .andExpect(status().isNotFound())
                 .andExpect(content().contentType(MediaType.APPLICATION_PROBLEM_JSON))
                 .andExpect(jsonPath("$.status").value(404))
@@ -333,7 +335,7 @@ class ApplicationControllerTest {
 
     @Test
     void getApplication_invalidUuid_returns400ProblemDetail() throws Exception {
-        mockMvc.perform(get("/api/applications/not-a-uuid").with(jwt()))
+        mockMvc.perform(get("/api/applications/not-a-uuid").with(userToken()))
                 .andExpect(status().isBadRequest())
                 .andExpect(content().contentType(MediaType.APPLICATION_PROBLEM_JSON))
                 .andExpect(jsonPath("$.status").value(400))
@@ -346,12 +348,12 @@ class ApplicationControllerTest {
 
     @Test
     void createApplication_uniqueIndexViolation_returns409ProblemDetail() throws Exception {
-        when(applicationService.createApplication(new CreateApplicationRequest(
+        when(applicationService.createApplication(OWNER_ID, new CreateApplicationRequest(
                 "ACME Corp", "Backend Engineer", APPLIED_DATE, 5_000_000L, "EUR", "Referred by a friend")))
                 .thenThrow(new DataIntegrityViolationException("duplicate key value violates unique constraint"));
 
         mockMvc.perform(post("/api/applications")
-                        .with(jwt())
+                        .with(userToken())
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(APPLICATION_JSON))
                 .andExpect(status().isConflict())
@@ -366,7 +368,7 @@ class ApplicationControllerTest {
         when(applicationService.getApplication(ID))
                 .thenThrow(new IllegalStateException("connection to jdbc:postgresql://db failed"));
 
-        mockMvc.perform(get("/api/applications/{id}", ID).with(jwt()))
+        mockMvc.perform(get("/api/applications/{id}", ID).with(userToken()))
                 .andExpect(status().isInternalServerError())
                 .andExpect(content().contentType(MediaType.APPLICATION_PROBLEM_JSON))
                 .andExpect(jsonPath("$.status").value(500))
@@ -381,7 +383,7 @@ class ApplicationControllerTest {
         when(applicationService.searchApplications(any(ApplicationSearchCriteria.class), any(Pageable.class)))
                 .thenReturn(new PageResponse<>(List.of(response(ApplicationStatus.APPLIED)), 0, 20, 1, 1));
 
-        mockMvc.perform(get("/api/applications").with(jwt()))
+        mockMvc.perform(get("/api/applications").with(userToken()))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.content", hasSize(1)))
                 .andExpect(jsonPath("$.content[0].id").value(ID.toString()))
@@ -397,7 +399,7 @@ class ApplicationControllerTest {
         when(applicationService.searchApplications(any(ApplicationSearchCriteria.class), any(Pageable.class)))
                 .thenReturn(new PageResponse<>(List.of(), 0, 20, 0, 0));
 
-        mockMvc.perform(get("/api/applications").with(jwt()))
+        mockMvc.perform(get("/api/applications").with(userToken()))
                 .andExpect(status().isOk())
                 .andExpect(content().json("""
                         {"content": [], "page": 0, "size": 20, "totalElements": 0, "totalPages": 0}
@@ -407,7 +409,7 @@ class ApplicationControllerTest {
     @Test
     void searchApplications_filterParameters_passesCriteriaToService() throws Exception {
         mockMvc.perform(get("/api/applications")
-                        .with(jwt())
+                        .with(userToken())
                         .param("status", "INTERVIEWING")
                         .param("company", "acme")
                         .param("appliedFrom", "2026-09-01")
@@ -423,7 +425,7 @@ class ApplicationControllerTest {
     @Test
     void searchApplications_pagingParameters_passesPageableToService() throws Exception {
         mockMvc.perform(get("/api/applications")
-                        .with(jwt())
+                        .with(userToken())
                         .param("page", "1")
                         .param("size", "5")
                         .param("sort", "appliedDate,desc"))
@@ -437,7 +439,7 @@ class ApplicationControllerTest {
 
     @Test
     void searchApplications_noParameters_usesDefaultPagingAndNewestFirst() throws Exception {
-        mockMvc.perform(get("/api/applications").with(jwt()))
+        mockMvc.perform(get("/api/applications").with(userToken()))
                 .andExpect(status().isOk());
 
         Pageable pageable = capturePageable();
@@ -448,7 +450,7 @@ class ApplicationControllerTest {
 
     @Test
     void searchApplications_sizeAboveMaximum_isCappedAt100() throws Exception {
-        mockMvc.perform(get("/api/applications").with(jwt()).param("size", "500"))
+        mockMvc.perform(get("/api/applications").with(userToken()).param("size", "500"))
                 .andExpect(status().isOk());
 
         assertThat(capturePageable().getPageSize()).isEqualTo(100);
@@ -456,7 +458,7 @@ class ApplicationControllerTest {
 
     @Test
     void searchApplications_unknownSortField_returns400ProblemDetail() throws Exception {
-        mockMvc.perform(get("/api/applications").with(jwt()).param("sort", "salary,asc"))
+        mockMvc.perform(get("/api/applications").with(userToken()).param("sort", "salary,asc"))
                 .andExpect(status().isBadRequest())
                 .andExpect(content().contentType(MediaType.APPLICATION_PROBLEM_JSON))
                 .andExpect(jsonPath("$.status").value(400))
@@ -469,7 +471,7 @@ class ApplicationControllerTest {
 
     @Test
     void searchApplications_existingButNotSortableField_returns400ProblemDetail() throws Exception {
-        mockMvc.perform(get("/api/applications").with(jwt()).param("sort", "notes"))
+        mockMvc.perform(get("/api/applications").with(userToken()).param("sort", "notes"))
                 .andExpect(status().isBadRequest())
                 .andExpect(jsonPath("$.detail")
                         .value("Cannot sort by 'notes'. Allowed fields: appliedDate, company, status, createdAt"));
@@ -480,7 +482,7 @@ class ApplicationControllerTest {
     @Test
     void searchApplications_oneOfTwoSortFieldsNotAllowed_returns400ProblemDetail() throws Exception {
         mockMvc.perform(get("/api/applications")
-                        .with(jwt())
+                        .with(userToken())
                         .param("sort", "company,asc")
                         .param("sort", "role,desc"))
                 .andExpect(status().isBadRequest())
@@ -493,7 +495,7 @@ class ApplicationControllerTest {
     @Test
     void searchApplications_appliedFromAfterAppliedTo_returns400ProblemDetail() throws Exception {
         mockMvc.perform(get("/api/applications")
-                        .with(jwt())
+                        .with(userToken())
                         .param("appliedFrom", "2026-10-01")
                         .param("appliedTo", "2026-09-01"))
                 .andExpect(status().isBadRequest())
@@ -505,7 +507,7 @@ class ApplicationControllerTest {
 
     @Test
     void searchApplications_unknownStatus_returns400ProblemDetail() throws Exception {
-        mockMvc.perform(get("/api/applications").with(jwt()).param("status", "HIRED"))
+        mockMvc.perform(get("/api/applications").with(userToken()).param("status", "HIRED"))
                 .andExpect(status().isBadRequest())
                 .andExpect(content().contentType(MediaType.APPLICATION_PROBLEM_JSON))
                 .andExpect(jsonPath("$.detail").value("Failed to convert 'status' with value: 'HIRED'"))
@@ -516,7 +518,7 @@ class ApplicationControllerTest {
 
     @Test
     void searchApplications_invalidDate_returns400ProblemDetail() throws Exception {
-        mockMvc.perform(get("/api/applications").with(jwt()).param("appliedFrom", "01.09.2026"))
+        mockMvc.perform(get("/api/applications").with(userToken()).param("appliedFrom", "01.09.2026"))
                 .andExpect(status().isBadRequest())
                 .andExpect(content().contentType(MediaType.APPLICATION_PROBLEM_JSON))
                 .andExpect(jsonPath("$.detail").value("Failed to convert 'appliedFrom' with value: '01.09.2026'"))
@@ -532,7 +534,7 @@ class ApplicationControllerTest {
         when(applicationService.updateApplication(ID, request)).thenReturn(response(ApplicationStatus.APPLIED));
 
         mockMvc.perform(put("/api/applications/{id}", ID)
-                        .with(jwt())
+                        .with(userToken())
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(APPLICATION_JSON))
                 .andExpect(status().isOk())
@@ -550,7 +552,7 @@ class ApplicationControllerTest {
                 .thenThrow(new ApplicationNotFoundException(message));
 
         mockMvc.perform(put("/api/applications/{id}", ID)
-                        .with(jwt())
+                        .with(userToken())
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(APPLICATION_JSON))
                 .andExpect(status().isNotFound())
@@ -566,7 +568,7 @@ class ApplicationControllerTest {
                 .thenThrow(new DuplicateApplicationException(message));
 
         mockMvc.perform(put("/api/applications/{id}", ID)
-                        .with(jwt())
+                        .with(userToken())
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(APPLICATION_JSON))
                 .andExpect(status().isConflict())
@@ -582,7 +584,7 @@ class ApplicationControllerTest {
                 """;
 
         mockMvc.perform(put("/api/applications/{id}", ID)
-                        .with(jwt())
+                        .with(userToken())
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(json))
                 .andExpect(status().isBadRequest())
@@ -600,7 +602,7 @@ class ApplicationControllerTest {
         when(applicationService.changeStatus(ID, request)).thenReturn(response(ApplicationStatus.INTERVIEWING));
 
         mockMvc.perform(patch("/api/applications/{id}/status", ID)
-                        .with(jwt())
+                        .with(userToken())
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("""
                                 {"status": "INTERVIEWING"}
@@ -618,7 +620,7 @@ class ApplicationControllerTest {
                 .thenThrow(new InvalidApplicationStateException(message));
 
         mockMvc.perform(patch("/api/applications/{id}/status", ID)
-                        .with(jwt())
+                        .with(userToken())
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("""
                                 {"status": "OFFER"}
@@ -638,7 +640,7 @@ class ApplicationControllerTest {
                 .thenThrow(new ApplicationNotFoundException(message));
 
         mockMvc.perform(patch("/api/applications/{id}/status", ID)
-                        .with(jwt())
+                        .with(userToken())
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("""
                                 {"status": "INTERVIEWING"}
@@ -651,7 +653,7 @@ class ApplicationControllerTest {
     @Test
     void changeStatus_unknownStatus_returns400ProblemDetail() throws Exception {
         mockMvc.perform(patch("/api/applications/{id}/status", ID)
-                        .with(jwt())
+                        .with(userToken())
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("""
                                 {"status": "HIRED"}
@@ -668,7 +670,7 @@ class ApplicationControllerTest {
     @Test
     void changeStatus_missingStatus_returns400WithFieldError() throws Exception {
         mockMvc.perform(patch("/api/applications/{id}/status", ID)
-                        .with(jwt())
+                        .with(userToken())
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("{}"))
                 .andExpect(status().isBadRequest())
@@ -684,7 +686,7 @@ class ApplicationControllerTest {
                 new StatusChangeResponse(null, ApplicationStatus.APPLIED, CREATED_AT),
                 new StatusChangeResponse(ApplicationStatus.APPLIED, ApplicationStatus.INTERVIEWING, changedAt)));
 
-        mockMvc.perform(get("/api/applications/{id}/history", ID).with(jwt()))
+        mockMvc.perform(get("/api/applications/{id}/history", ID).with(userToken()))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$", hasSize(2)))
                 .andExpect(jsonPath("$[0].oldStatus").doesNotExist())
@@ -700,7 +702,7 @@ class ApplicationControllerTest {
         String message = "No application found with id: " + ID;
         when(applicationService.getStatusHistory(ID)).thenThrow(new ApplicationNotFoundException(message));
 
-        mockMvc.perform(get("/api/applications/{id}/history", ID).with(jwt()))
+        mockMvc.perform(get("/api/applications/{id}/history", ID).with(userToken()))
                 .andExpect(status().isNotFound())
                 .andExpect(content().contentType(MediaType.APPLICATION_PROBLEM_JSON))
                 .andExpect(jsonPath("$.detail").value(message))
@@ -709,7 +711,7 @@ class ApplicationControllerTest {
 
     @Test
     void getStatusHistory_invalidUuid_returns400ProblemDetail() throws Exception {
-        mockMvc.perform(get("/api/applications/not-a-uuid/history").with(jwt()))
+        mockMvc.perform(get("/api/applications/not-a-uuid/history").with(userToken()))
                 .andExpect(status().isBadRequest())
                 .andExpect(content().contentType(MediaType.APPLICATION_PROBLEM_JSON));
 
@@ -726,7 +728,7 @@ class ApplicationControllerTest {
         when(applicationService.getStatistics()).thenReturn(new ApplicationStatisticsResponse(
                 3, 1, byStatus, List.of(new CompanyCount("acme corp", 2), new CompanyCount("globex", 1))));
 
-        mockMvc.perform(get("/api/applications/stats").with(jwt()))
+        mockMvc.perform(get("/api/applications/stats").with(userToken()))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.total").value(3))
                 .andExpect(jsonPath("$.active").value(1))
@@ -745,7 +747,7 @@ class ApplicationControllerTest {
 
     @Test
     void deleteApplication_existingId_returns204WithoutBody() throws Exception {
-        mockMvc.perform(delete("/api/applications/{id}", ID).with(jwt()))
+        mockMvc.perform(delete("/api/applications/{id}", ID).with(userToken()))
                 .andExpect(status().isNoContent())
                 .andExpect(content().string(""));
 
@@ -757,7 +759,7 @@ class ApplicationControllerTest {
         String message = "No application found with id: " + ID;
         doThrow(new ApplicationNotFoundException(message)).when(applicationService).deleteApplication(ID);
 
-        mockMvc.perform(delete("/api/applications/{id}", ID).with(jwt()))
+        mockMvc.perform(delete("/api/applications/{id}", ID).with(userToken()))
                 .andExpect(status().isNotFound())
                 .andExpect(content().contentType(MediaType.APPLICATION_PROBLEM_JSON))
                 .andExpect(jsonPath("$.detail").value(message));
@@ -767,6 +769,10 @@ class ApplicationControllerTest {
         ArgumentCaptor<Pageable> pageableCaptor = ArgumentCaptor.forClass(Pageable.class);
         verify(applicationService).searchApplications(any(ApplicationSearchCriteria.class), pageableCaptor.capture());
         return pageableCaptor.getValue();
+    }
+
+    private static JwtRequestPostProcessor userToken() {
+        return jwt().jwt(token -> token.subject(OWNER_ID.toString()));
     }
 
     private static ApplicationResponse response(ApplicationStatus status) {

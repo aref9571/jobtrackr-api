@@ -29,6 +29,9 @@ public class JobApplication {
     @Id
     private UUID id;
 
+    @Column(nullable = false, updatable = false)
+    private UUID ownerId;
+
     @Column(nullable = false, length = MAX_COMPANY_LENGTH)
     private String company;
 
@@ -60,13 +63,18 @@ public class JobApplication {
     protected JobApplication() {
     }
 
-    public JobApplication(String company,
+    public JobApplication(UUID ownerId,
+                          String company,
                           String role,
                           LocalDate appliedDate,
                           Long expectedSalaryCents,
                           String salaryCurrency,
                           String notes) {
+        if (ownerId == null) {
+            throw new IllegalArgumentException("ownerId must not be null");
+        }
         this.id = UUID.randomUUID();
+        this.ownerId = ownerId;
         this.status = ApplicationStatus.APPLIED;
         setDetails(company, role, appliedDate, expectedSalaryCents, salaryCurrency, notes);
     }
@@ -107,6 +115,10 @@ public class JobApplication {
 
     public UUID getId() {
         return id;
+    }
+
+    public UUID getOwnerId() {
+        return ownerId;
     }
 
     public String getCompany() {

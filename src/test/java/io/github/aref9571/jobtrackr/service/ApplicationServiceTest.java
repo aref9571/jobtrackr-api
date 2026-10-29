@@ -49,6 +49,7 @@ import static org.mockito.Mockito.when;
 @ExtendWith(MockitoExtension.class)
 class ApplicationServiceTest {
 
+    private static final UUID OWNER_ID = UUID.fromString("7c9e6679-7425-40de-944b-e07fc1f90ae7");
     private static final LocalDate APPLIED_DATE = LocalDate.of(2026, 10, 1);
     private static final ApplicationSearchCriteria NO_FILTERS = new ApplicationSearchCriteria(null, null, null, null);
 
@@ -68,7 +69,7 @@ class ApplicationServiceTest {
         when(repository.existsByCompanyIgnoreCaseAndRoleIgnoreCase("ACME Corp", "Backend Engineer")).thenReturn(false);
         when(repository.saveAndFlush(any(JobApplication.class))).thenAnswer(invocation -> invocation.getArgument(0));
 
-        ApplicationResponse response = service.createApplication(request);
+        ApplicationResponse response = service.createApplication(OWNER_ID, request);
 
         assertThat(response.id()).isNotNull();
         assertThat(response.company()).isEqualTo("ACME Corp");
@@ -78,7 +79,9 @@ class ApplicationServiceTest {
         assertThat(response.expectedSalaryCents()).isEqualTo(5_000_000L);
         assertThat(response.salaryCurrency()).isEqualTo("EUR");
         assertThat(response.notes()).isEqualTo("Referred by a friend");
-        verify(repository).saveAndFlush(any(JobApplication.class));
+        ArgumentCaptor<JobApplication> savedCaptor = ArgumentCaptor.forClass(JobApplication.class);
+        verify(repository).saveAndFlush(savedCaptor.capture());
+        assertThat(savedCaptor.getValue().getOwnerId()).isEqualTo(OWNER_ID);
     }
 
     @Test
@@ -88,7 +91,7 @@ class ApplicationServiceTest {
         when(repository.existsByCompanyIgnoreCaseAndRoleIgnoreCase("ACME Corp", "Backend Engineer")).thenReturn(false);
         when(repository.saveAndFlush(any(JobApplication.class))).thenAnswer(invocation -> invocation.getArgument(0));
 
-        ApplicationResponse response = service.createApplication(request);
+        ApplicationResponse response = service.createApplication(OWNER_ID, request);
 
         assertThat(response.company()).isEqualTo("ACME Corp");
         assertThat(response.role()).isEqualTo("Backend Engineer");
@@ -100,7 +103,7 @@ class ApplicationServiceTest {
                 "acme corp", "backend engineer", APPLIED_DATE, null, null, null);
         when(repository.existsByCompanyIgnoreCaseAndRoleIgnoreCase("acme corp", "backend engineer")).thenReturn(true);
 
-        assertThatThrownBy(() -> service.createApplication(request))
+        assertThatThrownBy(() -> service.createApplication(OWNER_ID, request))
                 .isInstanceOf(DuplicateApplicationException.class)
                 .hasMessage("Application for backend engineer at acme corp already exists");
         verify(repository, never()).saveAndFlush(any(JobApplication.class));
@@ -111,7 +114,7 @@ class ApplicationServiceTest {
         CreateApplicationRequest request = new CreateApplicationRequest(
                 " ", "Backend Engineer", APPLIED_DATE, null, null, null);
 
-        assertThatThrownBy(() -> service.createApplication(request))
+        assertThatThrownBy(() -> service.createApplication(OWNER_ID, request))
                 .isInstanceOf(IllegalArgumentException.class)
                 .hasMessage("company must not be blank");
         verify(repository, never()).existsByCompanyIgnoreCaseAndRoleIgnoreCase(anyString(), anyString());
@@ -368,7 +371,7 @@ class ApplicationServiceTest {
         when(repository.existsByCompanyIgnoreCaseAndRoleIgnoreCase("ACME Corp", "Backend Engineer")).thenReturn(false);
         when(repository.saveAndFlush(any(JobApplication.class))).thenAnswer(invocation -> invocation.getArgument(0));
 
-        ApplicationResponse response = service.createApplication(request);
+        ApplicationResponse response = service.createApplication(OWNER_ID, request);
 
         StatusChange recorded = captureRecordedStatusChange();
         assertThat(recorded.getApplication().getId()).isEqualTo(response.id());
@@ -382,7 +385,7 @@ class ApplicationServiceTest {
                 "ACME Corp", "Backend Engineer", APPLIED_DATE, null, null, null);
         when(repository.existsByCompanyIgnoreCaseAndRoleIgnoreCase("ACME Corp", "Backend Engineer")).thenReturn(true);
 
-        assertThatThrownBy(() -> service.createApplication(request))
+        assertThatThrownBy(() -> service.createApplication(OWNER_ID, request))
                 .isInstanceOf(DuplicateApplicationException.class);
         verify(statusChangeRepository, never()).save(any(StatusChange.class));
     }
@@ -498,6 +501,6 @@ class ApplicationServiceTest {
     }
 
     private static JobApplication application(String company, String role) {
-        return new JobApplication(company, role, APPLIED_DATE, null, null, null);
+        return new JobApplication(OWNER_ID, company, role, APPLIED_DATE, null, null, null);
     }
 }

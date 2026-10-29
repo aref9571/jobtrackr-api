@@ -15,14 +15,16 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 class JobApplicationTest {
 
+    private static final UUID OWNER_ID = UUID.fromString("7c9e6679-7425-40de-944b-e07fc1f90ae7");
     private static final LocalDate APPLIED_DATE = LocalDate.of(2026, 10, 1);
 
     @Test
     void constructor_validValues_createsAppliedApplication() {
         JobApplication application = new JobApplication(
-                "ACME Corp", "Backend Engineer", APPLIED_DATE, 5_000_000L, "EUR", "Referred by a friend");
+                OWNER_ID, "ACME Corp", "Backend Engineer", APPLIED_DATE, 5_000_000L, "EUR", "Referred by a friend");
 
         assertThat(application.getId()).isNotNull();
+        assertThat(application.getOwnerId()).isEqualTo(OWNER_ID);
         assertThat(application.getCompany()).isEqualTo("ACME Corp");
         assertThat(application.getRole()).isEqualTo("Backend Engineer");
         assertThat(application.getStatus()).isEqualTo(ApplicationStatus.APPLIED);
@@ -34,11 +36,19 @@ class JobApplicationTest {
 
     @Test
     void constructor_optionalFieldsAbsent_createsApplication() {
-        JobApplication application = new JobApplication("ACME Corp", "Backend Engineer", APPLIED_DATE, null, null, null);
+        JobApplication application = new JobApplication(
+                OWNER_ID, "ACME Corp", "Backend Engineer", APPLIED_DATE, null, null, null);
 
         assertThat(application.getExpectedSalaryCents()).isNull();
         assertThat(application.getSalaryCurrency()).isNull();
         assertThat(application.getNotes()).isNull();
+    }
+
+    @Test
+    void constructor_nullOwnerId_throwsException() {
+        assertThatThrownBy(() -> new JobApplication(null, "ACME Corp", "Backend Engineer", APPLIED_DATE, null, null, null))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessage("ownerId must not be null");
     }
 
     @Test
@@ -51,7 +61,8 @@ class JobApplicationTest {
 
     @Test
     void constructor_companyAndRoleWithSurroundingSpaces_storesTrimmedValues() {
-        JobApplication application = new JobApplication("  ACME Corp ", " Backend Engineer  ", APPLIED_DATE, null, null, null);
+        JobApplication application = new JobApplication(
+                OWNER_ID, "  ACME Corp ", " Backend Engineer  ", APPLIED_DATE, null, null, null);
 
         assertThat(application.getCompany()).isEqualTo("ACME Corp");
         assertThat(application.getRole()).isEqualTo("Backend Engineer");
@@ -293,7 +304,7 @@ class JobApplicationTest {
     @Test
     void updateDetails_validValues_replacesDetails() {
         JobApplication application = new JobApplication(
-                "ACME Corp", "Backend Engineer", APPLIED_DATE, 5_000_000L, "EUR", "Referred by a friend");
+                OWNER_ID, "ACME Corp", "Backend Engineer", APPLIED_DATE, 5_000_000L, "EUR", "Referred by a friend");
 
         application.updateDetails(" Globex ", " Java Developer ", LocalDate.of(2026, 9, 15), 6_000_000L, "USD", "Second round");
 
@@ -308,7 +319,7 @@ class JobApplicationTest {
     @Test
     void updateDetails_optionalFieldsAbsent_clearsOptionalFields() {
         JobApplication application = new JobApplication(
-                "ACME Corp", "Backend Engineer", APPLIED_DATE, 5_000_000L, "EUR", "Referred by a friend");
+                OWNER_ID, "ACME Corp", "Backend Engineer", APPLIED_DATE, 5_000_000L, "EUR", "Referred by a friend");
 
         application.updateDetails("ACME Corp", "Backend Engineer", APPLIED_DATE, null, null, null);
 
@@ -331,7 +342,7 @@ class JobApplicationTest {
     @Test
     void updateDetails_invalidSalary_throwsExceptionAndKeepsOldDetails() {
         JobApplication application = new JobApplication(
-                "ACME Corp", "Backend Engineer", APPLIED_DATE, 5_000_000L, "EUR", "Referred by a friend");
+                OWNER_ID, "ACME Corp", "Backend Engineer", APPLIED_DATE, 5_000_000L, "EUR", "Referred by a friend");
 
         assertThatThrownBy(() -> application.updateDetails(
                 "Globex", "Java Developer", APPLIED_DATE, -1L, "USD", "Second round"))
@@ -366,23 +377,24 @@ class JobApplicationTest {
     }
 
     private static JobApplication applicationWithCompany(String company) {
-        return new JobApplication(company, "Backend Engineer", APPLIED_DATE, null, null, null);
+        return new JobApplication(OWNER_ID, company, "Backend Engineer", APPLIED_DATE, null, null, null);
     }
 
     private static JobApplication applicationWithRole(String role) {
-        return new JobApplication("ACME Corp", role, APPLIED_DATE, null, null, null);
+        return new JobApplication(OWNER_ID, "ACME Corp", role, APPLIED_DATE, null, null, null);
     }
 
     private static JobApplication applicationWithAppliedDate(LocalDate appliedDate) {
-        return new JobApplication("ACME Corp", "Backend Engineer", appliedDate, null, null, null);
+        return new JobApplication(OWNER_ID, "ACME Corp", "Backend Engineer", appliedDate, null, null, null);
     }
 
     private static JobApplication applicationWithSalary(Long expectedSalaryCents, String salaryCurrency) {
-        return new JobApplication("ACME Corp", "Backend Engineer", APPLIED_DATE, expectedSalaryCents, salaryCurrency, null);
+        return new JobApplication(
+                OWNER_ID, "ACME Corp", "Backend Engineer", APPLIED_DATE, expectedSalaryCents, salaryCurrency, null);
     }
 
     private static JobApplication applicationWithNotes(String notes) {
-        return new JobApplication("ACME Corp", "Backend Engineer", APPLIED_DATE, null, null, notes);
+        return new JobApplication(OWNER_ID, "ACME Corp", "Backend Engineer", APPLIED_DATE, null, null, notes);
     }
 
     private static JobApplication interviewingApplication() {

@@ -46,8 +46,9 @@ public class ApplicationService {
     }
 
     @Transactional
-    public ApplicationResponse createApplication(CreateApplicationRequest request) {
+    public ApplicationResponse createApplication(UUID ownerId, CreateApplicationRequest request) {
         JobApplication application = new JobApplication(
+                ownerId,
                 request.company(),
                 request.role(),
                 request.appliedDate(),

@@ -5,6 +5,9 @@ import io.github.aref9571.jobtrackr.dto.CompanyCount;
 import io.github.aref9571.jobtrackr.dto.StatusCount;
 import io.github.aref9571.jobtrackr.model.ApplicationStatus;
 import io.github.aref9571.jobtrackr.model.JobApplication;
+import io.github.aref9571.jobtrackr.model.Role;
+import io.github.aref9571.jobtrackr.model.User;
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.data.jpa.test.autoconfigure.DataJpaTest;
@@ -27,6 +30,7 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 class JobApplicationRepositoryTest {
 
     private static final LocalDate APPLIED_DATE = LocalDate.of(2026, 10, 1);
+    private static final String PASSWORD_HASH = "$2a$10$abcdefghijklmnopqrstuuS7Ir1Dx5l6xNQ7r5BkcGcCL6kK1yJ0O";
 
     @Autowired
     private JobApplicationRepository repository;
@@ -34,10 +38,20 @@ class JobApplicationRepositoryTest {
     @Autowired
     private TestEntityManager entityManager;
 
+    @Autowired
+    private UserRepository userRepository;
+
+    private UUID ownerId;
+
+    @BeforeEach
+    void saveOwner() {
+        ownerId = userRepository.saveAndFlush(new User("ann@example.com", PASSWORD_HASH, Role.USER)).getId();
+    }
+
     @Test
     void save_newApplication_canBeFoundById() {
         JobApplication application = new JobApplication(
-                "ACME Corp", "Backend Engineer", APPLIED_DATE, 5_000_000L, "EUR", "Referred by a friend");
+                ownerId, "ACME Corp", "Backend Engineer", APPLIED_DATE, 5_000_000L, "EUR", "Referred by a friend");
 
         repository.save(application);
         entityManager.flush();
@@ -46,6 +60,7 @@ class JobApplicationRepositoryTest {
 
         assertThat(found).isPresent();
         JobApplication loaded = found.get();
+        assertThat(loaded.getOwnerId()).isEqualTo(ownerId);
         assertThat(loaded.getCompany()).isEqualTo("ACME Corp");
         assertThat(loaded.getRole()).isEqualTo("Backend Engineer");
         assertThat(loaded.getStatus()).isEqualTo(ApplicationStatus.APPLIED);
@@ -57,7 +72,8 @@ class JobApplicationRepositoryTest {
 
     @Test
     void save_withoutOptionalFields_storesNulls() {
-        JobApplication application = new JobApplication("ACME Corp", "Backend Engineer", APPLIED_DATE, null, null, null);
+        JobApplication application = new JobApplication(
+                ownerId, "ACME Corp", "Backend Engineer", APPLIED_DATE, null, null, null);
 
         repository.save(application);
         entityManager.flush();
@@ -78,7 +94,8 @@ class JobApplicationRepositoryTest {
 
     @Test
     void existsByCompanyAndRole_sameValuesInDifferentCase_returnsTrue() {
-        repository.saveAndFlush(new JobApplication("ACME Corp", "Backend Engineer", APPLIED_DATE, null, null, null));
+        repository.saveAndFlush(new JobApplication(
+                ownerId, "ACME Corp", "Backend Engineer", APPLIED_DATE, null, null, null));
 
         boolean exists = repository.existsByCompanyIgnoreCaseAndRoleIgnoreCase("acme corp", "BACKEND ENGINEER");
 
@@ -87,7 +104,8 @@ class JobApplicationRepositoryTest {
 
     @Test
     void existsByCompanyAndRole_differentRole_returnsFalse() {
-        repository.saveAndFlush(new JobApplication("ACME Corp", "Backend Engineer", APPLIED_DATE, null, null, null));
+        repository.saveAndFlush(new JobApplication(
+                ownerId, "ACME Corp", "Backend Engineer", APPLIED_DATE, null, null, null));
 
         boolean exists = repository.existsByCompanyIgnoreCaseAndRoleIgnoreCase("ACME Corp", "Frontend Engineer");
 
@@ -96,8 +114,10 @@ class JobApplicationRepositoryTest {
 
     @Test
     void saveAndFlush_sameCompanyAndRoleInDifferentCase_violatesUniqueIndex() {
-        repository.saveAndFlush(new JobApplication("ACME Corp", "Backend Engineer", APPLIED_DATE, null, null, null));
-        JobApplication duplicate = new JobApplication("acme corp", "backend engineer", APPLIED_DATE, null, null, null);
+        repository.saveAndFlush(new JobApplication(
+                ownerId, "ACME Corp", "Backend Engineer", APPLIED_DATE, null, null, null));
+        JobApplication duplicate = new JobApplication(
+                ownerId, "acme corp", "backend engineer", APPLIED_DATE, null, null, null);
 
         assertThatThrownBy(() -> repository.saveAndFlush(duplicate))
                 .isInstanceOf(DataIntegrityViolationException.class);
@@ -106,7 +126,8 @@ class JobApplicationRepositoryTest {
     @Test
     void save_newApplication_setsCreatedAndUpdatedTimestamps() {
         Instant beforeSave = Instant.now();
-        JobApplication application = new JobApplication("ACME Corp", "Backend Engineer", APPLIED_DATE, null, null, null);
+        JobApplication application = new JobApplication(
+                ownerId, "ACME Corp", "Backend Engineer", APPLIED_DATE, null, null, null);
 
         JobApplication saved = repository.saveAndFlush(application);
 
@@ -117,7 +138,7 @@ class JobApplicationRepositoryTest {
     @Test
     void saveAndFlush_newApplication_returnsTimestampsAsStored() {
         JobApplication saved = repository.saveAndFlush(
-                new JobApplication("ACME Corp", "Backend Engineer", APPLIED_DATE, null, null, null));
+                new JobApplication(ownerId, "ACME Corp", "Backend Engineer", APPLIED_DATE, null, null, null));
         entityManager.clear();
 
         JobApplication loaded = repository.findById(saved.getId()).orElseThrow();
@@ -129,7 +150,7 @@ class JobApplicationRepositoryTest {
     @Test
     void save_changedStatus_updatesOnlyUpdatedTimestamp() {
         JobApplication saved = repository.saveAndFlush(
-                new JobApplication("ACME Corp", "Backend Engineer", APPLIED_DATE, null, null, null));
+                new JobApplication(ownerId, "ACME Corp", "Backend Engineer", APPLIED_DATE, null, null, null));
         Instant createdAt = saved.getCreatedAt();
 
         saved.changeStatus(ApplicationStatus.INTERVIEWING);
@@ -204,7 +225,7 @@ class JobApplicationRepositoryTest {
     }
 
     private void saveWithStatus(String company, String role, ApplicationStatus status) {
-        JobApplication application = new JobApplication(company, role, APPLIED_DATE, null, null, null);
+        JobApplication application = new JobApplication(ownerId, company, role, APPLIED_DATE, null, null, null);
         if (status != ApplicationStatus.APPLIED) {
             application.changeStatus(status);
         }

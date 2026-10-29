@@ -3,6 +3,8 @@ package io.github.aref9571.jobtrackr.repository;
 import io.github.aref9571.jobtrackr.TestcontainersConfiguration;
 import io.github.aref9571.jobtrackr.model.ApplicationStatus;
 import io.github.aref9571.jobtrackr.model.JobApplication;
+import io.github.aref9571.jobtrackr.model.Role;
+import io.github.aref9571.jobtrackr.model.User;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -15,6 +17,7 @@ import org.springframework.data.jpa.domain.Specification;
 
 import java.time.LocalDate;
 import java.util.List;
+import java.util.UUID;
 
 import static io.github.aref9571.jobtrackr.repository.JobApplicationSpecifications.appliedOnOrAfter;
 import static io.github.aref9571.jobtrackr.repository.JobApplicationSpecifications.appliedOnOrBefore;
@@ -27,12 +30,19 @@ import static org.assertj.core.api.Assertions.assertThat;
 class JobApplicationSpecificationsTest {
 
     private static final Sort BY_COMPANY = Sort.by("company");
+    private static final String PASSWORD_HASH = "$2a$10$abcdefghijklmnopqrstuuS7Ir1Dx5l6xNQ7r5BkcGcCL6kK1yJ0O";
 
     @Autowired
     private JobApplicationRepository repository;
 
+    @Autowired
+    private UserRepository userRepository;
+
+    private UUID ownerId;
+
     @BeforeEach
     void saveApplications() {
+        ownerId = userRepository.saveAndFlush(new User("ann@example.com", PASSWORD_HASH, Role.USER)).getId();
         save("ACME Corp", LocalDate.of(2026, 9, 1), ApplicationStatus.APPLIED);
         save("Acme Labs", LocalDate.of(2026, 9, 15), ApplicationStatus.INTERVIEWING);
         save("Globex", LocalDate.of(2026, 9, 30), ApplicationStatus.INTERVIEWING);
@@ -155,7 +165,8 @@ class JobApplicationSpecificationsTest {
     }
 
     private void save(String company, LocalDate appliedDate, ApplicationStatus status) {
-        JobApplication application = new JobApplication(company, "Backend Engineer", appliedDate, null, null, null);
+        JobApplication application = new JobApplication(
+                ownerId, company, "Backend Engineer", appliedDate, null, null, null);
         if (status != ApplicationStatus.APPLIED) {
             application.changeStatus(status);
         }
