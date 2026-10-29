@@ -1,6 +1,6 @@
 # JobTrackr API
 
-JobTrackr API is a Spring Boot REST API for tracking job applications. It is being built step by step from the JobTrackr domain in [java-foundations](https://github.com/aref9571/java-foundations). At this stage the project contains the job application domain model, its PostgreSQL table managed by Flyway, a Spring Data repository, a service layer with the application use cases, REST endpoints for creating, reading, updating, deleting and changing the status of job applications, request validation with consistent error responses, a list endpoint with filters, paging and sorting, a status history for each application, statistics computed in the database, user registration with BCrypt password hashing, login with JSON Web Tokens (JWT) that protect every application endpoint, OpenAPI documentation with Swagger UI, a health check endpoint, an end-to-end API test, a coverage report and a continuous integration build.
+JobTrackr API is a Spring Boot REST API for tracking job applications. It is being built step by step from the JobTrackr domain in [java-foundations](https://github.com/aref9571/java-foundations). At this stage the project contains the job application domain model, its PostgreSQL table managed by Flyway, a Spring Data repository, a service layer with the application use cases, REST endpoints for creating, reading, updating, deleting and changing the status of job applications, request validation with consistent error responses, a list endpoint with filters, paging and sorting, a status history for each application, statistics computed in the database, user registration with BCrypt password hashing, login with JSON Web Tokens (JWT) that protect every application endpoint, applications that belong to the user who created them so that every user sees only their own data, an admin endpoint with totals across all users, OpenAPI documentation with Swagger UI, a health check endpoint, an end-to-end API test, a coverage report and a continuous integration build.
 
 ## Tech stack
 
@@ -81,8 +81,6 @@ To call the application endpoints from Swagger UI, log in with `POST /api/auth/l
 
 ## Endpoints
 
-| Method | Path | Success | Errors |
-|---|---|---|---|
 | Method | Path | Token | Success | Errors |
 |---|---|---|---|---|
 | `POST` | `/api/auth/register` | no | 201 with `id` and `email` | 400, 409 email already registered |
@@ -95,11 +93,27 @@ To call the application endpoints from Swagger UI, log in with `POST /api/auth/l
 | `GET` | `/api/applications/{id}/history` | yes | 200 | 400, 401, 404 |
 | `GET` | `/api/applications/stats` | yes | 200 | 401 |
 | `DELETE` | `/api/applications/{id}` | yes | 204 | 400, 401, 404 |
+| `GET` | `/api/admin/stats` | yes, role `ADMIN` | 200 with `totalUsers` and `totalApplications` | 401, 403 |
 | `GET` | `/actuator/health` | no | 200 | |
 | `GET` | `/swagger-ui.html` | no | 302 to Swagger UI | |
 | `GET` | `/v3/api-docs` | no | 200 with the OpenAPI description | |
 
 Registration, login, the health check and the API documentation are public. Every other path needs a valid token in the `Authorization: Bearer <token>` header. A request without a token, with a token that is not a valid JWT, with a wrong signature or with an expired token returns `401 Unauthorized` with an empty body and a `WWW-Authenticate` header.
+
+## Ownership and roles
+
+Every application belongs to the user who created it. The API takes the user id from the `sub` claim of the token, never from the request, and every application query is limited to that user: list, get, update, status change, delete, history, statistics, search and the duplicate check. Two users can therefore both track the same company and role, while one user still gets `409 Conflict` for a second application with the same company and role.
+
+Another user's application gives the same `404 Not Found` as an id that does not exist, so the API does not reveal whether it exists.
+
+Every new user has the role `USER`. `GET /api/admin/stats` needs the role `ADMIN` and returns `403 Forbidden` for other users. There is no endpoint to change roles. To make a user an admin, update the `users` table, for example in the Docker Compose database:
+
+```bash
+docker compose exec postgres psql -U jobtrackr -d jobtrackr \
+  -c "update users set role = 'ADMIN' where email = 'ann.smith@example.com';"
+```
+
+The role is stored in the token at login, so the user must log in again to get a token with the new role. An admin still sees only their own applications in the `/api/applications` endpoints.
 
 ## API examples
 
@@ -281,7 +295,7 @@ curl -i -H "Authorization: Bearer $TOKEN" http://localhost:8080/api/applications
 [{"oldStatus":null,"newStatus":"APPLIED","changedAt":"2026-10-23T13:47:20.402240Z"},{"oldStatus":"APPLIED","newStatus":"INTERVIEWING","changedAt":"2026-10-23T13:47:20.555596Z"},{"oldStatus":"INTERVIEWING","newStatus":"OFFER","changedAt":"2026-10-23T13:47:20.583869Z"}]
 ```
 
-Get statistics over all applications:
+Get statistics over your own applications:
 
 ```bash
 curl -i -H "Authorization: Bearer $TOKEN" http://localhost:8080/api/applications/stats
@@ -298,6 +312,16 @@ Delete an application. Its status history is deleted with it. The response is `2
 ```bash
 curl -i -H "Authorization: Bearer $TOKEN" -X DELETE http://localhost:8080/api/applications/{id}
 curl -i -H "Authorization: Bearer $TOKEN" http://localhost:8080/api/applications/{id}
+```
+
+Log in as a user with the role `ADMIN` (see [Ownership and roles](#ownership-and-roles)) and keep that token in `ADMIN_TOKEN`. Get the number of users and applications across all users:
+
+```bash
+curl -i -H "Authorization: Bearer $ADMIN_TOKEN" http://localhost:8080/api/admin/stats
+```
+
+```json
+{"totalUsers":2,"totalApplications":3}
 ```
 
 Errors use the Problem Details format (RFC 9457) with the content type `application/problem+json`:
@@ -320,10 +344,11 @@ Docker must be running, because some tests start a PostgreSQL 17 container with 
 |---|---|---|
 | Unit tests | `model`, `dto` and `service` tests | Plain JUnit tests; the service tests replace the repositories with Mockito mocks |
 | Repository tests | `repository` tests | `@DataJpaTest` against PostgreSQL in Testcontainers, with the Flyway migrations |
-| Controller tests | `ApplicationControllerTest`, `AuthControllerTest` | `@WebMvcTest` with MockMvc, the security configuration and a mocked service, no database; requests get a test JWT from Spring Security's `jwt()` request post processor |
+| Controller tests | `ApplicationControllerTest`, `AuthControllerTest`, `AdminControllerTest` | `@WebMvcTest` with MockMvc, the security configuration and a mocked service, no database; requests get a test JWT with a user id or a role from Spring Security's `jwt()` request post processor |
 | Context test | `JobtrackrApiApplicationTests` | Starts the application context against PostgreSQL in Testcontainers |
 | Integration test | `ApplicationApiIntegrationTest` | The whole application on a random port against PostgreSQL in Testcontainers, called over HTTP with `RestTestClient`: register, log in, then create, get, update, change status, history, statistics and delete with the token |
 | Integration test | `AuthApiIntegrationTest` | Registration and login over HTTP against PostgreSQL, the stored BCrypt hash, duplicate emails in another case, the token claims, the same 401 for a wrong password and an unknown email, requests without a token or with a broken, expired or foreign token, and which paths are public |
+| Integration test | `OwnershipApiIntegrationTest` | Two users over HTTP against PostgreSQL: one user cannot read, update, change the status of, delete or see the history of the other user's application (404), list, search and statistics only include the user's own applications, the duplicate rule applies per user, and `/api/admin/stats` returns 401 without a token, 403 for `USER` and 200 for `ADMIN` |
 
 Run one test class:
 
