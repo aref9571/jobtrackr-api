@@ -67,17 +67,18 @@ public class ApplicationController {
     }
 
     @GetMapping("/stats")
-    public ApplicationStatisticsResponse getStatistics() {
-        return applicationService.getStatistics();
+    public ApplicationStatisticsResponse getStatistics(@AuthenticationPrincipal Jwt jwt) {
+        return applicationService.getStatistics(ownerId(jwt));
     }
 
     @GetMapping("/{id}")
-    public ApplicationResponse getApplication(@PathVariable UUID id) {
-        return applicationService.getApplication(id);
+    public ApplicationResponse getApplication(@AuthenticationPrincipal Jwt jwt, @PathVariable UUID id) {
+        return applicationService.getApplication(ownerId(jwt), id);
     }
 
     @GetMapping
     public PageResponse<ApplicationResponse> searchApplications(
+            @AuthenticationPrincipal Jwt jwt,
             @RequestParam(required = false) ApplicationStatus status,
             @RequestParam(required = false) String company,
             @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate appliedFrom,
@@ -87,29 +88,32 @@ public class ApplicationController {
         requireValidDateRange(appliedFrom, appliedTo);
         requireSortableFields(pageable.getSort());
         ApplicationSearchCriteria criteria = new ApplicationSearchCriteria(status, company, appliedFrom, appliedTo);
-        return applicationService.searchApplications(criteria, pageable);
+        return applicationService.searchApplications(ownerId(jwt), criteria, pageable);
     }
 
     @PutMapping("/{id}")
-    public ApplicationResponse updateApplication(@PathVariable UUID id,
+    public ApplicationResponse updateApplication(@AuthenticationPrincipal Jwt jwt,
+                                                 @PathVariable UUID id,
                                                  @Valid @RequestBody UpdateApplicationRequest request) {
-        return applicationService.updateApplication(id, request);
+        return applicationService.updateApplication(ownerId(jwt), id, request);
     }
 
     @PatchMapping("/{id}/status")
-    public ApplicationResponse changeStatus(@PathVariable UUID id, @Valid @RequestBody ChangeStatusRequest request) {
-        return applicationService.changeStatus(id, request);
+    public ApplicationResponse changeStatus(@AuthenticationPrincipal Jwt jwt,
+                                            @PathVariable UUID id,
+                                            @Valid @RequestBody ChangeStatusRequest request) {
+        return applicationService.changeStatus(ownerId(jwt), id, request);
     }
 
     @GetMapping("/{id}/history")
-    public List<StatusChangeResponse> getStatusHistory(@PathVariable UUID id) {
-        return applicationService.getStatusHistory(id);
+    public List<StatusChangeResponse> getStatusHistory(@AuthenticationPrincipal Jwt jwt, @PathVariable UUID id) {
+        return applicationService.getStatusHistory(ownerId(jwt), id);
     }
 
     @DeleteMapping("/{id}")
     @ResponseStatus(HttpStatus.NO_CONTENT)
-    public void deleteApplication(@PathVariable UUID id) {
-        applicationService.deleteApplication(id);
+    public void deleteApplication(@AuthenticationPrincipal Jwt jwt, @PathVariable UUID id) {
+        applicationService.deleteApplication(ownerId(jwt), id);
     }
 
     private static UUID ownerId(Jwt jwt) {

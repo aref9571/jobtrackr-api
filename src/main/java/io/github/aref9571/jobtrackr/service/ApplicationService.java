@@ -55,20 +55,23 @@ public class ApplicationService {
                 request.expectedSalaryCents(),
                 request.salaryCurrency(),
                 request.notes());
-        requireNoDuplicate(application.getCompany(), application.getRole());
+        requireNoDuplicate(ownerId, application.getCompany(), application.getRole());
         JobApplication saved = repository.saveAndFlush(application);
         recordStatusChange(saved, null);
         return ApplicationResponse.from(saved);
     }
 
     @Transactional(readOnly = true)
-    public ApplicationResponse getApplication(UUID id) {
-        return ApplicationResponse.from(findApplication(id));
+    public ApplicationResponse getApplication(UUID ownerId, UUID id) {
+        return ApplicationResponse.from(findOwnedApplication(ownerId, id));
     }
 
     @Transactional(readOnly = true)
-    public PageResponse<ApplicationResponse> searchApplications(ApplicationSearchCriteria criteria, Pageable pageable) {
+    public PageResponse<ApplicationResponse> searchApplications(UUID ownerId,
+                                                                ApplicationSearchCriteria criteria,
+                                                                Pageable pageable) {
         Specification<JobApplication> specification = Specification.allOf(
+                JobApplicationSpecifications.hasOwner(ownerId),
                 JobApplicationSpecifications.hasStatus(criteria.status()),
                 JobApplicationSpecifications.companyContains(criteria.company()),
                 JobApplicationSpecifications.appliedOnOrAfter(criteria.appliedFrom()),
@@ -79,12 +82,12 @@ public class ApplicationService {
     }
 
     @Transactional
-    public ApplicationResponse updateApplication(UUID id, UpdateApplicationRequest request) {
-        JobApplication application = findApplication(id);
+    public ApplicationResponse updateApplication(UUID ownerId, UUID id, UpdateApplicationRequest request) {
+        JobApplication application = findOwnedApplication(ownerId, id);
         String company = trimOrNull(request.company());
         String role = trimOrNull(request.role());
         if (!hasCompanyAndRole(application, company, role)) {
-            requireNoDuplicate(company, role);
+            requireNoDuplicate(ownerId, company, role);
         }
         application.updateDetails(
                 company,
@@ -97,8 +100,8 @@ public class ApplicationService {
     }
 
     @Transactional
-    public ApplicationResponse changeStatus(UUID id, ChangeStatusRequest request) {
-        JobApplication application = findApplication(id);
+    public ApplicationResponse changeStatus(UUID ownerId, UUID id, ChangeStatusRequest request) {
+        JobApplication application = findOwnedApplication(ownerId, id);
         ApplicationStatus oldStatus = application.getStatus();
         application.changeStatus(request.status());
         JobApplication saved = repository.saveAndFlush(application);
@@ -107,16 +110,16 @@ public class ApplicationService {
     }
 
     @Transactional(readOnly = true)
-    public List<StatusChangeResponse> getStatusHistory(UUID id) {
-        requireApplicationExists(id);
+    public List<StatusChangeResponse> getStatusHistory(UUID ownerId, UUID id) {
+        requireOwnedApplicationExists(ownerId, id);
         return statusChangeRepository.findByApplicationIdOrderByChangedAtAsc(id).stream()
                 .map(StatusChangeResponse::from)
                 .toList();
     }
 
     @Transactional(readOnly = true)
-    public ApplicationStatisticsResponse getStatistics() {
-        Map<ApplicationStatus, Long> byStatus = countPerStatus();
+    public ApplicationStatisticsResponse getStatistics(UUID ownerId) {
+        Map<ApplicationStatus, Long> byStatus = countPerStatus(ownerId);
         long total = 0;
         long active = 0;
         for (Map.Entry<ApplicationStatus, Long> entry : byStatus.entrySet()) {
@@ -125,34 +128,34 @@ public class ApplicationService {
                 active += entry.getValue();
             }
         }
-        List<CompanyCount> topCompanies = repository.findTopCompanies(Limit.of(TOP_COMPANIES_LIMIT));
+        List<CompanyCount> topCompanies = repository.findTopCompanies(ownerId, Limit.of(TOP_COMPANIES_LIMIT));
         return new ApplicationStatisticsResponse(total, active, byStatus, topCompanies);
     }
 
     @Transactional
-    public void deleteApplication(UUID id) {
-        JobApplication application = findApplication(id);
+    public void deleteApplication(UUID ownerId, UUID id) {
+        JobApplication application = findOwnedApplication(ownerId, id);
         repository.delete(application);
     }
 
-    private JobApplication findApplication(UUID id) {
-        return repository.findById(id)
+    private JobApplication findOwnedApplication(UUID ownerId, UUID id) {
+        return repository.findByIdAndOwnerId(id, ownerId)
                 .orElseThrow(() -> new ApplicationNotFoundException("No application found with id: " + id));
     }
 
-    private Map<ApplicationStatus, Long> countPerStatus() {
+    private Map<ApplicationStatus, Long> countPerStatus(UUID ownerId) {
         Map<ApplicationStatus, Long> byStatus = new EnumMap<>(ApplicationStatus.class);
         for (ApplicationStatus status : ApplicationStatus.values()) {
             byStatus.put(status, 0L);
         }
-        for (StatusCount statusCount : repository.countPerStatus()) {
+        for (StatusCount statusCount : repository.countPerStatus(ownerId)) {
             byStatus.put(statusCount.status(), statusCount.count());
         }
         return byStatus;
     }
 
-    private void requireApplicationExists(UUID id) {
-        if (!repository.existsById(id)) {
+    private void requireOwnedApplicationExists(UUID ownerId, UUID id) {
+        if (!repository.existsByIdAndOwnerId(id, ownerId)) {
             throw new ApplicationNotFoundException("No application found with id: " + id);
         }
     }
@@ -161,8 +164,8 @@ public class ApplicationService {
         statusChangeRepository.save(new StatusChange(application, oldStatus, application.getStatus()));
     }
 
-    private void requireNoDuplicate(String company, String role) {
-        if (repository.existsByCompanyIgnoreCaseAndRoleIgnoreCase(company, role)) {
+    private void requireNoDuplicate(UUID ownerId, String company, String role) {
+        if (repository.existsByOwnerIdAndCompanyIgnoreCaseAndRoleIgnoreCase(ownerId, company, role)) {
             throw new DuplicateApplicationException("Application for " + role + " at " + company + " already exists");
         }
     }

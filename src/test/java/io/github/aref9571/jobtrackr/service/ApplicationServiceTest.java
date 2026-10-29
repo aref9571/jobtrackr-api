@@ -66,7 +66,8 @@ class ApplicationServiceTest {
     void createApplication_newCompanyAndRole_savesAndReturnsApplication() {
         CreateApplicationRequest request = new CreateApplicationRequest(
                 "ACME Corp", "Backend Engineer", APPLIED_DATE, 5_000_000L, "EUR", "Referred by a friend");
-        when(repository.existsByCompanyIgnoreCaseAndRoleIgnoreCase("ACME Corp", "Backend Engineer")).thenReturn(false);
+        when(repository.existsByOwnerIdAndCompanyIgnoreCaseAndRoleIgnoreCase(OWNER_ID, "ACME Corp", "Backend Engineer"))
+                .thenReturn(false);
         when(repository.saveAndFlush(any(JobApplication.class))).thenAnswer(invocation -> invocation.getArgument(0));
 
         ApplicationResponse response = service.createApplication(OWNER_ID, request);
@@ -88,7 +89,8 @@ class ApplicationServiceTest {
     void createApplication_companyAndRoleWithSpaces_checksDuplicateWithTrimmedValues() {
         CreateApplicationRequest request = new CreateApplicationRequest(
                 "  ACME Corp ", " Backend Engineer ", APPLIED_DATE, null, null, null);
-        when(repository.existsByCompanyIgnoreCaseAndRoleIgnoreCase("ACME Corp", "Backend Engineer")).thenReturn(false);
+        when(repository.existsByOwnerIdAndCompanyIgnoreCaseAndRoleIgnoreCase(OWNER_ID, "ACME Corp", "Backend Engineer"))
+                .thenReturn(false);
         when(repository.saveAndFlush(any(JobApplication.class))).thenAnswer(invocation -> invocation.getArgument(0));
 
         ApplicationResponse response = service.createApplication(OWNER_ID, request);
@@ -101,7 +103,8 @@ class ApplicationServiceTest {
     void createApplication_sameCompanyAndRoleExists_throwsException() {
         CreateApplicationRequest request = new CreateApplicationRequest(
                 "acme corp", "backend engineer", APPLIED_DATE, null, null, null);
-        when(repository.existsByCompanyIgnoreCaseAndRoleIgnoreCase("acme corp", "backend engineer")).thenReturn(true);
+        when(repository.existsByOwnerIdAndCompanyIgnoreCaseAndRoleIgnoreCase(OWNER_ID, "acme corp", "backend engineer"))
+                .thenReturn(true);
 
         assertThatThrownBy(() -> service.createApplication(OWNER_ID, request))
                 .isInstanceOf(DuplicateApplicationException.class)
@@ -117,16 +120,17 @@ class ApplicationServiceTest {
         assertThatThrownBy(() -> service.createApplication(OWNER_ID, request))
                 .isInstanceOf(IllegalArgumentException.class)
                 .hasMessage("company must not be blank");
-        verify(repository, never()).existsByCompanyIgnoreCaseAndRoleIgnoreCase(anyString(), anyString());
+        verify(repository, never()).existsByOwnerIdAndCompanyIgnoreCaseAndRoleIgnoreCase(
+                any(UUID.class), anyString(), anyString());
         verify(repository, never()).saveAndFlush(any(JobApplication.class));
     }
 
     @Test
     void getApplication_existingId_returnsApplication() {
         JobApplication application = application("ACME Corp", "Backend Engineer");
-        when(repository.findById(application.getId())).thenReturn(Optional.of(application));
+        when(repository.findByIdAndOwnerId(application.getId(), OWNER_ID)).thenReturn(Optional.of(application));
 
-        ApplicationResponse response = service.getApplication(application.getId());
+        ApplicationResponse response = service.getApplication(OWNER_ID, application.getId());
 
         assertThat(response.id()).isEqualTo(application.getId());
         assertThat(response.company()).isEqualTo("ACME Corp");
@@ -135,9 +139,9 @@ class ApplicationServiceTest {
     @Test
     void getApplication_unknownId_throwsException() {
         UUID id = UUID.randomUUID();
-        when(repository.findById(id)).thenReturn(Optional.empty());
+        when(repository.findByIdAndOwnerId(id, OWNER_ID)).thenReturn(Optional.empty());
 
-        assertThatThrownBy(() -> service.getApplication(id))
+        assertThatThrownBy(() -> service.getApplication(OWNER_ID, id))
                 .isInstanceOf(ApplicationNotFoundException.class)
                 .hasMessage("No application found with id: " + id);
     }
@@ -150,7 +154,7 @@ class ApplicationServiceTest {
         when(repository.findAll(any(Specification.class), any(Pageable.class)))
                 .thenReturn(new PageImpl<>(List.of(first, second), pageable, 2));
 
-        PageResponse<ApplicationResponse> response = service.searchApplications(NO_FILTERS, pageable);
+        PageResponse<ApplicationResponse> response = service.searchApplications(OWNER_ID, NO_FILTERS, pageable);
 
         assertThat(response.content())
                 .extracting(ApplicationResponse::id)
@@ -167,7 +171,7 @@ class ApplicationServiceTest {
         when(repository.findAll(any(Specification.class), any(Pageable.class)))
                 .thenReturn(new PageImpl<>(List.of(), pageable, 0));
 
-        PageResponse<ApplicationResponse> response = service.searchApplications(NO_FILTERS, pageable);
+        PageResponse<ApplicationResponse> response = service.searchApplications(OWNER_ID, NO_FILTERS, pageable);
 
         assertThat(response.content()).isEmpty();
         assertThat(response.totalElements()).isZero();
@@ -181,7 +185,7 @@ class ApplicationServiceTest {
                 .thenReturn(new PageImpl<>(List.of(), pageable, 5));
         ArgumentCaptor<Pageable> pageableCaptor = ArgumentCaptor.forClass(Pageable.class);
 
-        service.searchApplications(NO_FILTERS, pageable);
+        service.searchApplications(OWNER_ID, NO_FILTERS, pageable);
 
         verify(repository).findAll(any(Specification.class), pageableCaptor.capture());
         Pageable used = pageableCaptor.getValue();
@@ -195,11 +199,12 @@ class ApplicationServiceTest {
         JobApplication application = application("ACME Corp", "Backend Engineer");
         UpdateApplicationRequest request = new UpdateApplicationRequest(
                 "Globex", "Backend Engineer", LocalDate.of(2026, 9, 15), 6_000_000L, "USD", "Second round");
-        when(repository.findById(application.getId())).thenReturn(Optional.of(application));
-        when(repository.existsByCompanyIgnoreCaseAndRoleIgnoreCase("Globex", "Backend Engineer")).thenReturn(false);
+        when(repository.findByIdAndOwnerId(application.getId(), OWNER_ID)).thenReturn(Optional.of(application));
+        when(repository.existsByOwnerIdAndCompanyIgnoreCaseAndRoleIgnoreCase(OWNER_ID, "Globex", "Backend Engineer"))
+                .thenReturn(false);
         when(repository.saveAndFlush(application)).thenReturn(application);
 
-        ApplicationResponse response = service.updateApplication(application.getId(), request);
+        ApplicationResponse response = service.updateApplication(OWNER_ID, application.getId(), request);
 
         assertThat(response.company()).isEqualTo("Globex");
         assertThat(response.role()).isEqualTo("Backend Engineer");
@@ -215,14 +220,16 @@ class ApplicationServiceTest {
         JobApplication application = application("ACME Corp", "Backend Engineer");
         UpdateApplicationRequest request = new UpdateApplicationRequest(
                 "ACME Corp", "Java Developer", APPLIED_DATE, null, null, null);
-        when(repository.findById(application.getId())).thenReturn(Optional.of(application));
-        when(repository.existsByCompanyIgnoreCaseAndRoleIgnoreCase("ACME Corp", "Java Developer")).thenReturn(false);
+        when(repository.findByIdAndOwnerId(application.getId(), OWNER_ID)).thenReturn(Optional.of(application));
+        when(repository.existsByOwnerIdAndCompanyIgnoreCaseAndRoleIgnoreCase(OWNER_ID, "ACME Corp", "Java Developer"))
+                .thenReturn(false);
         when(repository.saveAndFlush(application)).thenReturn(application);
 
-        ApplicationResponse response = service.updateApplication(application.getId(), request);
+        ApplicationResponse response = service.updateApplication(OWNER_ID, application.getId(), request);
 
         assertThat(response.role()).isEqualTo("Java Developer");
-        verify(repository).existsByCompanyIgnoreCaseAndRoleIgnoreCase("ACME Corp", "Java Developer");
+        verify(repository).existsByOwnerIdAndCompanyIgnoreCaseAndRoleIgnoreCase(
+                OWNER_ID, "ACME Corp", "Java Developer");
     }
 
     @Test
@@ -230,15 +237,16 @@ class ApplicationServiceTest {
         JobApplication application = application("ACME Corp", "Backend Engineer");
         UpdateApplicationRequest request = new UpdateApplicationRequest(
                 " acme corp ", "BACKEND ENGINEER", APPLIED_DATE, null, null, "Phone call booked");
-        when(repository.findById(application.getId())).thenReturn(Optional.of(application));
+        when(repository.findByIdAndOwnerId(application.getId(), OWNER_ID)).thenReturn(Optional.of(application));
         when(repository.saveAndFlush(application)).thenReturn(application);
 
-        ApplicationResponse response = service.updateApplication(application.getId(), request);
+        ApplicationResponse response = service.updateApplication(OWNER_ID, application.getId(), request);
 
         assertThat(response.company()).isEqualTo("acme corp");
         assertThat(response.role()).isEqualTo("BACKEND ENGINEER");
         assertThat(response.notes()).isEqualTo("Phone call booked");
-        verify(repository, never()).existsByCompanyIgnoreCaseAndRoleIgnoreCase(anyString(), anyString());
+        verify(repository, never()).existsByOwnerIdAndCompanyIgnoreCaseAndRoleIgnoreCase(
+                any(UUID.class), anyString(), anyString());
     }
 
     @Test
@@ -246,10 +254,11 @@ class ApplicationServiceTest {
         JobApplication application = application("ACME Corp", "Backend Engineer");
         UpdateApplicationRequest request = new UpdateApplicationRequest(
                 "Globex", "Java Developer", APPLIED_DATE, null, null, null);
-        when(repository.findById(application.getId())).thenReturn(Optional.of(application));
-        when(repository.existsByCompanyIgnoreCaseAndRoleIgnoreCase("Globex", "Java Developer")).thenReturn(true);
+        when(repository.findByIdAndOwnerId(application.getId(), OWNER_ID)).thenReturn(Optional.of(application));
+        when(repository.existsByOwnerIdAndCompanyIgnoreCaseAndRoleIgnoreCase(OWNER_ID, "Globex", "Java Developer"))
+                .thenReturn(true);
 
-        assertThatThrownBy(() -> service.updateApplication(application.getId(), request))
+        assertThatThrownBy(() -> service.updateApplication(OWNER_ID, application.getId(), request))
                 .isInstanceOf(DuplicateApplicationException.class)
                 .hasMessage("Application for Java Developer at Globex already exists");
         assertThat(application.getCompany()).isEqualTo("ACME Corp");
@@ -262,9 +271,9 @@ class ApplicationServiceTest {
         JobApplication application = application("ACME Corp", "Backend Engineer");
         UpdateApplicationRequest request = new UpdateApplicationRequest(
                 "ACME Corp", "Backend Engineer", APPLIED_DATE, 5_000_000L, null, null);
-        when(repository.findById(application.getId())).thenReturn(Optional.of(application));
+        when(repository.findByIdAndOwnerId(application.getId(), OWNER_ID)).thenReturn(Optional.of(application));
 
-        assertThatThrownBy(() -> service.updateApplication(application.getId(), request))
+        assertThatThrownBy(() -> service.updateApplication(OWNER_ID, application.getId(), request))
                 .isInstanceOf(IllegalArgumentException.class)
                 .hasMessage("expectedSalaryCents and salaryCurrency must both be present or both be absent");
         verify(repository, never()).saveAndFlush(any(JobApplication.class));
@@ -275,9 +284,9 @@ class ApplicationServiceTest {
         UUID id = UUID.randomUUID();
         UpdateApplicationRequest request = new UpdateApplicationRequest(
                 "Globex", "Java Developer", APPLIED_DATE, null, null, null);
-        when(repository.findById(id)).thenReturn(Optional.empty());
+        when(repository.findByIdAndOwnerId(id, OWNER_ID)).thenReturn(Optional.empty());
 
-        assertThatThrownBy(() -> service.updateApplication(id, request))
+        assertThatThrownBy(() -> service.updateApplication(OWNER_ID, id, request))
                 .isInstanceOf(ApplicationNotFoundException.class)
                 .hasMessage("No application found with id: " + id);
         verify(repository, never()).saveAndFlush(any(JobApplication.class));
@@ -286,11 +295,11 @@ class ApplicationServiceTest {
     @Test
     void changeStatus_allowedChange_savesNewStatus() {
         JobApplication application = application("ACME Corp", "Backend Engineer");
-        when(repository.findById(application.getId())).thenReturn(Optional.of(application));
+        when(repository.findByIdAndOwnerId(application.getId(), OWNER_ID)).thenReturn(Optional.of(application));
         when(repository.saveAndFlush(application)).thenReturn(application);
 
         ApplicationResponse response = service.changeStatus(
-                application.getId(), new ChangeStatusRequest(ApplicationStatus.INTERVIEWING));
+                OWNER_ID, application.getId(), new ChangeStatusRequest(ApplicationStatus.INTERVIEWING));
 
         assertThat(response.status()).isEqualTo(ApplicationStatus.INTERVIEWING);
         verify(repository).saveAndFlush(application);
@@ -299,10 +308,10 @@ class ApplicationServiceTest {
     @Test
     void changeStatus_fromAppliedToOffer_throwsExceptionWithoutSaving() {
         JobApplication application = application("ACME Corp", "Backend Engineer");
-        when(repository.findById(application.getId())).thenReturn(Optional.of(application));
+        when(repository.findByIdAndOwnerId(application.getId(), OWNER_ID)).thenReturn(Optional.of(application));
 
         assertThatThrownBy(() -> service.changeStatus(
-                application.getId(), new ChangeStatusRequest(ApplicationStatus.OFFER)))
+                OWNER_ID, application.getId(), new ChangeStatusRequest(ApplicationStatus.OFFER)))
                 .isInstanceOf(InvalidApplicationStateException.class)
                 .hasMessage("Cannot move from APPLIED to OFFER");
         assertThat(application.getStatus()).isEqualTo(ApplicationStatus.APPLIED);
@@ -313,10 +322,10 @@ class ApplicationServiceTest {
     void changeStatus_fromFinalStatus_throwsExceptionWithoutSaving() {
         JobApplication application = application("ACME Corp", "Backend Engineer");
         application.changeStatus(ApplicationStatus.REJECTED);
-        when(repository.findById(application.getId())).thenReturn(Optional.of(application));
+        when(repository.findByIdAndOwnerId(application.getId(), OWNER_ID)).thenReturn(Optional.of(application));
 
         assertThatThrownBy(() -> service.changeStatus(
-                application.getId(), new ChangeStatusRequest(ApplicationStatus.INTERVIEWING)))
+                OWNER_ID, application.getId(), new ChangeStatusRequest(ApplicationStatus.INTERVIEWING)))
                 .isInstanceOf(InvalidApplicationStateException.class)
                 .hasMessage("Cannot change status: application is already in final state REJECTED");
         verify(repository, never()).saveAndFlush(any(JobApplication.class));
@@ -325,9 +334,9 @@ class ApplicationServiceTest {
     @Test
     void changeStatus_nullStatus_throwsExceptionWithoutSaving() {
         JobApplication application = application("ACME Corp", "Backend Engineer");
-        when(repository.findById(application.getId())).thenReturn(Optional.of(application));
+        when(repository.findByIdAndOwnerId(application.getId(), OWNER_ID)).thenReturn(Optional.of(application));
 
-        assertThatThrownBy(() -> service.changeStatus(application.getId(), new ChangeStatusRequest(null)))
+        assertThatThrownBy(() -> service.changeStatus(OWNER_ID, application.getId(), new ChangeStatusRequest(null)))
                 .isInstanceOf(InvalidApplicationStateException.class)
                 .hasMessage("new status must not be null");
         verify(repository, never()).saveAndFlush(any(JobApplication.class));
@@ -336,9 +345,10 @@ class ApplicationServiceTest {
     @Test
     void changeStatus_unknownId_throwsException() {
         UUID id = UUID.randomUUID();
-        when(repository.findById(id)).thenReturn(Optional.empty());
+        when(repository.findByIdAndOwnerId(id, OWNER_ID)).thenReturn(Optional.empty());
 
-        assertThatThrownBy(() -> service.changeStatus(id, new ChangeStatusRequest(ApplicationStatus.INTERVIEWING)))
+        assertThatThrownBy(() -> service.changeStatus(
+                OWNER_ID, id, new ChangeStatusRequest(ApplicationStatus.INTERVIEWING)))
                 .isInstanceOf(ApplicationNotFoundException.class)
                 .hasMessage("No application found with id: " + id);
     }
@@ -346,9 +356,9 @@ class ApplicationServiceTest {
     @Test
     void deleteApplication_existingId_deletesApplication() {
         JobApplication application = application("ACME Corp", "Backend Engineer");
-        when(repository.findById(application.getId())).thenReturn(Optional.of(application));
+        when(repository.findByIdAndOwnerId(application.getId(), OWNER_ID)).thenReturn(Optional.of(application));
 
-        service.deleteApplication(application.getId());
+        service.deleteApplication(OWNER_ID, application.getId());
 
         verify(repository).delete(application);
     }
@@ -356,9 +366,9 @@ class ApplicationServiceTest {
     @Test
     void deleteApplication_unknownId_throwsException() {
         UUID id = UUID.randomUUID();
-        when(repository.findById(id)).thenReturn(Optional.empty());
+        when(repository.findByIdAndOwnerId(id, OWNER_ID)).thenReturn(Optional.empty());
 
-        assertThatThrownBy(() -> service.deleteApplication(id))
+        assertThatThrownBy(() -> service.deleteApplication(OWNER_ID, id))
                 .isInstanceOf(ApplicationNotFoundException.class)
                 .hasMessage("No application found with id: " + id);
         verify(repository, never()).delete(any(JobApplication.class));
@@ -368,7 +378,8 @@ class ApplicationServiceTest {
     void createApplication_newApplication_recordsFirstStatusChange() {
         CreateApplicationRequest request = new CreateApplicationRequest(
                 "ACME Corp", "Backend Engineer", APPLIED_DATE, null, null, null);
-        when(repository.existsByCompanyIgnoreCaseAndRoleIgnoreCase("ACME Corp", "Backend Engineer")).thenReturn(false);
+        when(repository.existsByOwnerIdAndCompanyIgnoreCaseAndRoleIgnoreCase(OWNER_ID, "ACME Corp", "Backend Engineer"))
+                .thenReturn(false);
         when(repository.saveAndFlush(any(JobApplication.class))).thenAnswer(invocation -> invocation.getArgument(0));
 
         ApplicationResponse response = service.createApplication(OWNER_ID, request);
@@ -383,7 +394,8 @@ class ApplicationServiceTest {
     void createApplication_duplicate_recordsNoStatusChange() {
         CreateApplicationRequest request = new CreateApplicationRequest(
                 "ACME Corp", "Backend Engineer", APPLIED_DATE, null, null, null);
-        when(repository.existsByCompanyIgnoreCaseAndRoleIgnoreCase("ACME Corp", "Backend Engineer")).thenReturn(true);
+        when(repository.existsByOwnerIdAndCompanyIgnoreCaseAndRoleIgnoreCase(OWNER_ID, "ACME Corp", "Backend Engineer"))
+                .thenReturn(true);
 
         assertThatThrownBy(() -> service.createApplication(OWNER_ID, request))
                 .isInstanceOf(DuplicateApplicationException.class);
@@ -393,10 +405,10 @@ class ApplicationServiceTest {
     @Test
     void changeStatus_allowedChange_recordsOldAndNewStatus() {
         JobApplication application = application("ACME Corp", "Backend Engineer");
-        when(repository.findById(application.getId())).thenReturn(Optional.of(application));
+        when(repository.findByIdAndOwnerId(application.getId(), OWNER_ID)).thenReturn(Optional.of(application));
         when(repository.saveAndFlush(application)).thenReturn(application);
 
-        service.changeStatus(application.getId(), new ChangeStatusRequest(ApplicationStatus.INTERVIEWING));
+        service.changeStatus(OWNER_ID, application.getId(), new ChangeStatusRequest(ApplicationStatus.INTERVIEWING));
 
         StatusChange recorded = captureRecordedStatusChange();
         assertThat(recorded.getApplication()).isSameAs(application);
@@ -407,10 +419,10 @@ class ApplicationServiceTest {
     @Test
     void changeStatus_forbiddenChange_recordsNoStatusChange() {
         JobApplication application = application("ACME Corp", "Backend Engineer");
-        when(repository.findById(application.getId())).thenReturn(Optional.of(application));
+        when(repository.findByIdAndOwnerId(application.getId(), OWNER_ID)).thenReturn(Optional.of(application));
 
         assertThatThrownBy(() -> service.changeStatus(
-                application.getId(), new ChangeStatusRequest(ApplicationStatus.OFFER)))
+                OWNER_ID, application.getId(), new ChangeStatusRequest(ApplicationStatus.OFFER)))
                 .isInstanceOf(InvalidApplicationStateException.class);
         verify(statusChangeRepository, never()).save(any(StatusChange.class));
     }
@@ -420,10 +432,10 @@ class ApplicationServiceTest {
         JobApplication application = application("ACME Corp", "Backend Engineer");
         UpdateApplicationRequest request = new UpdateApplicationRequest(
                 "ACME Corp", "Backend Engineer", APPLIED_DATE, null, null, "Phone call booked");
-        when(repository.findById(application.getId())).thenReturn(Optional.of(application));
+        when(repository.findByIdAndOwnerId(application.getId(), OWNER_ID)).thenReturn(Optional.of(application));
         when(repository.saveAndFlush(application)).thenReturn(application);
 
-        service.updateApplication(application.getId(), request);
+        service.updateApplication(OWNER_ID, application.getId(), request);
 
         verify(statusChangeRepository, never()).save(any(StatusChange.class));
     }
@@ -433,11 +445,11 @@ class ApplicationServiceTest {
         JobApplication application = application("ACME Corp", "Backend Engineer");
         StatusChange first = new StatusChange(application, null, ApplicationStatus.APPLIED);
         StatusChange second = new StatusChange(application, ApplicationStatus.APPLIED, ApplicationStatus.REJECTED);
-        when(repository.existsById(application.getId())).thenReturn(true);
+        when(repository.existsByIdAndOwnerId(application.getId(), OWNER_ID)).thenReturn(true);
         when(statusChangeRepository.findByApplicationIdOrderByChangedAtAsc(application.getId()))
                 .thenReturn(List.of(first, second));
 
-        List<StatusChangeResponse> history = service.getStatusHistory(application.getId());
+        List<StatusChangeResponse> history = service.getStatusHistory(OWNER_ID, application.getId());
 
         assertThat(history)
                 .extracting(StatusChangeResponse::oldStatus, StatusChangeResponse::newStatus,
@@ -450,9 +462,9 @@ class ApplicationServiceTest {
     @Test
     void getStatusHistory_unknownId_throwsExceptionWithoutLoadingHistory() {
         UUID id = UUID.randomUUID();
-        when(repository.existsById(id)).thenReturn(false);
+        when(repository.existsByIdAndOwnerId(id, OWNER_ID)).thenReturn(false);
 
-        assertThatThrownBy(() -> service.getStatusHistory(id))
+        assertThatThrownBy(() -> service.getStatusHistory(OWNER_ID, id))
                 .isInstanceOf(ApplicationNotFoundException.class)
                 .hasMessage("No application found with id: " + id);
         verify(statusChangeRepository, never()).findByApplicationIdOrderByChangedAtAsc(any(UUID.class));
@@ -461,13 +473,13 @@ class ApplicationServiceTest {
     @Test
     void getStatistics_someStatusesMissing_returnsZeroForThemAndTotals() {
         List<CompanyCount> topCompanies = List.of(new CompanyCount("acme corp", 2), new CompanyCount("globex", 1));
-        when(repository.countPerStatus()).thenReturn(List.of(
+        when(repository.countPerStatus(OWNER_ID)).thenReturn(List.of(
                 new StatusCount(ApplicationStatus.APPLIED, 3),
                 new StatusCount(ApplicationStatus.INTERVIEWING, 2),
                 new StatusCount(ApplicationStatus.REJECTED, 1)));
-        when(repository.findTopCompanies(Limit.of(5))).thenReturn(topCompanies);
+        when(repository.findTopCompanies(OWNER_ID, Limit.of(5))).thenReturn(topCompanies);
 
-        ApplicationStatisticsResponse statistics = service.getStatistics();
+        ApplicationStatisticsResponse statistics = service.getStatistics(OWNER_ID);
 
         assertThat(statistics.total()).isEqualTo(6);
         assertThat(statistics.active()).isEqualTo(5);
@@ -481,10 +493,10 @@ class ApplicationServiceTest {
 
     @Test
     void getStatistics_noApplications_returnsZeroForEveryStatus() {
-        when(repository.countPerStatus()).thenReturn(List.of());
-        when(repository.findTopCompanies(Limit.of(5))).thenReturn(List.of());
+        when(repository.countPerStatus(OWNER_ID)).thenReturn(List.of());
+        when(repository.findTopCompanies(OWNER_ID, Limit.of(5))).thenReturn(List.of());
 
-        ApplicationStatisticsResponse statistics = service.getStatistics();
+        ApplicationStatisticsResponse statistics = service.getStatistics(OWNER_ID);
 
         assertThat(statistics.total()).isZero();
         assertThat(statistics.active()).isZero();

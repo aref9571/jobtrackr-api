@@ -6,12 +6,17 @@ import org.springframework.data.jpa.domain.Specification;
 
 import java.time.LocalDate;
 import java.util.Locale;
+import java.util.UUID;
 
 public final class JobApplicationSpecifications {
 
     private static final char ESCAPE_CHARACTER = '\\';
 
     private JobApplicationSpecifications() {
+    }
+
+    public static Specification<JobApplication> hasOwner(UUID ownerId) {
+        return (root, query, builder) -> builder.equal(root.get("ownerId"), ownerId);
     }
 
     public static Specification<JobApplication> hasStatus(ApplicationStatus status) {

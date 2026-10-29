@@ -97,7 +97,8 @@ class JobApplicationRepositoryTest {
         repository.saveAndFlush(new JobApplication(
                 ownerId, "ACME Corp", "Backend Engineer", APPLIED_DATE, null, null, null));
 
-        boolean exists = repository.existsByCompanyIgnoreCaseAndRoleIgnoreCase("acme corp", "BACKEND ENGINEER");
+        boolean exists = repository.existsByOwnerIdAndCompanyIgnoreCaseAndRoleIgnoreCase(
+                ownerId, "acme corp", "BACKEND ENGINEER");
 
         assertThat(exists).isTrue();
     }
@@ -107,7 +108,8 @@ class JobApplicationRepositoryTest {
         repository.saveAndFlush(new JobApplication(
                 ownerId, "ACME Corp", "Backend Engineer", APPLIED_DATE, null, null, null));
 
-        boolean exists = repository.existsByCompanyIgnoreCaseAndRoleIgnoreCase("ACME Corp", "Frontend Engineer");
+        boolean exists = repository.existsByOwnerIdAndCompanyIgnoreCaseAndRoleIgnoreCase(
+                ownerId, "ACME Corp", "Frontend Engineer");
 
         assertThat(exists).isFalse();
     }
@@ -167,7 +169,7 @@ class JobApplicationRepositoryTest {
         saveWithStatus("Initech", "Backend Engineer", ApplicationStatus.INTERVIEWING);
         saveWithStatus("Hooli", "Backend Engineer", ApplicationStatus.REJECTED);
 
-        List<StatusCount> counts = repository.countPerStatus();
+        List<StatusCount> counts = repository.countPerStatus(ownerId);
 
         assertThat(counts).containsExactlyInAnyOrder(
                 new StatusCount(ApplicationStatus.APPLIED, 2),
@@ -177,7 +179,7 @@ class JobApplicationRepositoryTest {
 
     @Test
     void countPerStatus_noApplications_returnsEmptyList() {
-        List<StatusCount> counts = repository.countPerStatus();
+        List<StatusCount> counts = repository.countPerStatus(ownerId);
 
         assertThat(counts).isEmpty();
     }
@@ -188,7 +190,7 @@ class JobApplicationRepositoryTest {
         saveWithStatus("acme corp", "Java Developer", ApplicationStatus.APPLIED);
         saveWithStatus("Globex", "Backend Engineer", ApplicationStatus.APPLIED);
 
-        List<CompanyCount> topCompanies = repository.findTopCompanies(Limit.of(5));
+        List<CompanyCount> topCompanies = repository.findTopCompanies(ownerId, Limit.of(5));
 
         assertThat(topCompanies).containsExactly(
                 new CompanyCount("acme corp", 2),
@@ -207,7 +209,7 @@ class JobApplicationRepositoryTest {
         saveWithStatus("ACME Corp", "Backend Engineer", ApplicationStatus.APPLIED);
         saveWithStatus("Soylent", "Backend Engineer", ApplicationStatus.APPLIED);
 
-        List<CompanyCount> topCompanies = repository.findTopCompanies(Limit.of(5));
+        List<CompanyCount> topCompanies = repository.findTopCompanies(ownerId, Limit.of(5));
 
         assertThat(topCompanies).containsExactly(
                 new CompanyCount("umbrella", 3),
@@ -219,7 +221,7 @@ class JobApplicationRepositoryTest {
 
     @Test
     void findTopCompanies_noApplications_returnsEmptyList() {
-        List<CompanyCount> topCompanies = repository.findTopCompanies(Limit.of(5));
+        List<CompanyCount> topCompanies = repository.findTopCompanies(ownerId, Limit.of(5));
 
         assertThat(topCompanies).isEmpty();
     }

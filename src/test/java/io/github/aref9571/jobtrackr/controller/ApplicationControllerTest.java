@@ -310,7 +310,7 @@ class ApplicationControllerTest {
 
     @Test
     void getApplication_existingId_returns200WithApplication() throws Exception {
-        when(applicationService.getApplication(ID)).thenReturn(response(ApplicationStatus.INTERVIEWING));
+        when(applicationService.getApplication(OWNER_ID, ID)).thenReturn(response(ApplicationStatus.INTERVIEWING));
 
         mockMvc.perform(get("/api/applications/{id}", ID).with(userToken()))
                 .andExpect(status().isOk())
@@ -322,7 +322,7 @@ class ApplicationControllerTest {
     @Test
     void getApplication_unknownId_returns404ProblemDetail() throws Exception {
         String message = "No application found with id: " + ID;
-        when(applicationService.getApplication(ID)).thenThrow(new ApplicationNotFoundException(message));
+        when(applicationService.getApplication(OWNER_ID, ID)).thenThrow(new ApplicationNotFoundException(message));
 
         mockMvc.perform(get("/api/applications/{id}", ID).with(userToken()))
                 .andExpect(status().isNotFound())
@@ -365,7 +365,7 @@ class ApplicationControllerTest {
 
     @Test
     void getApplication_unexpectedError_returns500WithoutInternalDetails() throws Exception {
-        when(applicationService.getApplication(ID))
+        when(applicationService.getApplication(OWNER_ID, ID))
                 .thenThrow(new IllegalStateException("connection to jdbc:postgresql://db failed"));
 
         mockMvc.perform(get("/api/applications/{id}", ID).with(userToken()))
@@ -380,7 +380,8 @@ class ApplicationControllerTest {
 
     @Test
     void searchApplications_applicationsExist_returns200WithPage() throws Exception {
-        when(applicationService.searchApplications(any(ApplicationSearchCriteria.class), any(Pageable.class)))
+        when(applicationService.searchApplications(
+                eq(OWNER_ID), any(ApplicationSearchCriteria.class), any(Pageable.class)))
                 .thenReturn(new PageResponse<>(List.of(response(ApplicationStatus.APPLIED)), 0, 20, 1, 1));
 
         mockMvc.perform(get("/api/applications").with(userToken()))
@@ -396,7 +397,8 @@ class ApplicationControllerTest {
 
     @Test
     void searchApplications_noApplications_returns200WithEmptyPage() throws Exception {
-        when(applicationService.searchApplications(any(ApplicationSearchCriteria.class), any(Pageable.class)))
+        when(applicationService.searchApplications(
+                eq(OWNER_ID), any(ApplicationSearchCriteria.class), any(Pageable.class)))
                 .thenReturn(new PageResponse<>(List.of(), 0, 20, 0, 0));
 
         mockMvc.perform(get("/api/applications").with(userToken()))
@@ -417,6 +419,7 @@ class ApplicationControllerTest {
                 .andExpect(status().isOk());
 
         verify(applicationService).searchApplications(
+                eq(OWNER_ID),
                 eq(new ApplicationSearchCriteria(ApplicationStatus.INTERVIEWING, "acme",
                         LocalDate.of(2026, 9, 1), LocalDate.of(2026, 9, 30))),
                 any(Pageable.class));
@@ -531,7 +534,8 @@ class ApplicationControllerTest {
     void updateApplication_existingId_returns200WithUpdatedApplication() throws Exception {
         UpdateApplicationRequest request = new UpdateApplicationRequest(
                 "ACME Corp", "Backend Engineer", APPLIED_DATE, 5_000_000L, "EUR", "Referred by a friend");
-        when(applicationService.updateApplication(ID, request)).thenReturn(response(ApplicationStatus.APPLIED));
+        when(applicationService.updateApplication(OWNER_ID, ID, request))
+                .thenReturn(response(ApplicationStatus.APPLIED));
 
         mockMvc.perform(put("/api/applications/{id}", ID)
                         .with(userToken())
@@ -541,13 +545,13 @@ class ApplicationControllerTest {
                 .andExpect(jsonPath("$.id").value(ID.toString()))
                 .andExpect(jsonPath("$.notes").value("Referred by a friend"));
 
-        verify(applicationService).updateApplication(ID, request);
+        verify(applicationService).updateApplication(OWNER_ID, ID, request);
     }
 
     @Test
     void updateApplication_unknownId_returns404ProblemDetail() throws Exception {
         String message = "No application found with id: " + ID;
-        when(applicationService.updateApplication(ID, new UpdateApplicationRequest(
+        when(applicationService.updateApplication(OWNER_ID, ID, new UpdateApplicationRequest(
                 "ACME Corp", "Backend Engineer", APPLIED_DATE, 5_000_000L, "EUR", "Referred by a friend")))
                 .thenThrow(new ApplicationNotFoundException(message));
 
@@ -563,7 +567,7 @@ class ApplicationControllerTest {
     @Test
     void updateApplication_duplicate_returns409ProblemDetail() throws Exception {
         String message = "Application for Backend Engineer at ACME Corp already exists";
-        when(applicationService.updateApplication(ID, new UpdateApplicationRequest(
+        when(applicationService.updateApplication(OWNER_ID, ID, new UpdateApplicationRequest(
                 "ACME Corp", "Backend Engineer", APPLIED_DATE, 5_000_000L, "EUR", "Referred by a friend")))
                 .thenThrow(new DuplicateApplicationException(message));
 
@@ -599,7 +603,8 @@ class ApplicationControllerTest {
     @Test
     void changeStatus_allowedChange_returns200WithNewStatus() throws Exception {
         ChangeStatusRequest request = new ChangeStatusRequest(ApplicationStatus.INTERVIEWING);
-        when(applicationService.changeStatus(ID, request)).thenReturn(response(ApplicationStatus.INTERVIEWING));
+        when(applicationService.changeStatus(OWNER_ID, ID, request))
+                .thenReturn(response(ApplicationStatus.INTERVIEWING));
 
         mockMvc.perform(patch("/api/applications/{id}/status", ID)
                         .with(userToken())
@@ -610,13 +615,13 @@ class ApplicationControllerTest {
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.status").value("INTERVIEWING"));
 
-        verify(applicationService).changeStatus(ID, request);
+        verify(applicationService).changeStatus(OWNER_ID, ID, request);
     }
 
     @Test
     void changeStatus_forbiddenChange_returns409ProblemDetail() throws Exception {
         String message = "Cannot move from APPLIED to OFFER";
-        when(applicationService.changeStatus(ID, new ChangeStatusRequest(ApplicationStatus.OFFER)))
+        when(applicationService.changeStatus(OWNER_ID, ID, new ChangeStatusRequest(ApplicationStatus.OFFER)))
                 .thenThrow(new InvalidApplicationStateException(message));
 
         mockMvc.perform(patch("/api/applications/{id}/status", ID)
@@ -636,7 +641,7 @@ class ApplicationControllerTest {
     @Test
     void changeStatus_unknownId_returns404ProblemDetail() throws Exception {
         String message = "No application found with id: " + ID;
-        when(applicationService.changeStatus(ID, new ChangeStatusRequest(ApplicationStatus.INTERVIEWING)))
+        when(applicationService.changeStatus(OWNER_ID, ID, new ChangeStatusRequest(ApplicationStatus.INTERVIEWING)))
                 .thenThrow(new ApplicationNotFoundException(message));
 
         mockMvc.perform(patch("/api/applications/{id}/status", ID)
@@ -682,7 +687,7 @@ class ApplicationControllerTest {
     @Test
     void getStatusHistory_existingId_returns200WithEntriesOldestFirst() throws Exception {
         Instant changedAt = Instant.parse("2026-10-02T14:00:00Z");
-        when(applicationService.getStatusHistory(ID)).thenReturn(List.of(
+        when(applicationService.getStatusHistory(OWNER_ID, ID)).thenReturn(List.of(
                 new StatusChangeResponse(null, ApplicationStatus.APPLIED, CREATED_AT),
                 new StatusChangeResponse(ApplicationStatus.APPLIED, ApplicationStatus.INTERVIEWING, changedAt)));
 
@@ -700,7 +705,7 @@ class ApplicationControllerTest {
     @Test
     void getStatusHistory_unknownId_returns404ProblemDetail() throws Exception {
         String message = "No application found with id: " + ID;
-        when(applicationService.getStatusHistory(ID)).thenThrow(new ApplicationNotFoundException(message));
+        when(applicationService.getStatusHistory(OWNER_ID, ID)).thenThrow(new ApplicationNotFoundException(message));
 
         mockMvc.perform(get("/api/applications/{id}/history", ID).with(userToken()))
                 .andExpect(status().isNotFound())
@@ -725,7 +730,7 @@ class ApplicationControllerTest {
         byStatus.put(ApplicationStatus.INTERVIEWING, 0L);
         byStatus.put(ApplicationStatus.OFFER, 1L);
         byStatus.put(ApplicationStatus.REJECTED, 1L);
-        when(applicationService.getStatistics()).thenReturn(new ApplicationStatisticsResponse(
+        when(applicationService.getStatistics(OWNER_ID)).thenReturn(new ApplicationStatisticsResponse(
                 3, 1, byStatus, List.of(new CompanyCount("acme corp", 2), new CompanyCount("globex", 1))));
 
         mockMvc.perform(get("/api/applications/stats").with(userToken()))
@@ -742,7 +747,7 @@ class ApplicationControllerTest {
                 .andExpect(jsonPath("$.topCompanies[1].company").value("globex"))
                 .andExpect(jsonPath("$.topCompanies[1].count").value(1));
 
-        verify(applicationService).getStatistics();
+        verify(applicationService).getStatistics(OWNER_ID);
     }
 
     @Test
@@ -751,13 +756,13 @@ class ApplicationControllerTest {
                 .andExpect(status().isNoContent())
                 .andExpect(content().string(""));
 
-        verify(applicationService).deleteApplication(ID);
+        verify(applicationService).deleteApplication(OWNER_ID, ID);
     }
 
     @Test
     void deleteApplication_unknownId_returns404ProblemDetail() throws Exception {
         String message = "No application found with id: " + ID;
-        doThrow(new ApplicationNotFoundException(message)).when(applicationService).deleteApplication(ID);
+        doThrow(new ApplicationNotFoundException(message)).when(applicationService).deleteApplication(OWNER_ID, ID);
 
         mockMvc.perform(delete("/api/applications/{id}", ID).with(userToken()))
                 .andExpect(status().isNotFound())
@@ -767,7 +772,8 @@ class ApplicationControllerTest {
 
     private Pageable capturePageable() {
         ArgumentCaptor<Pageable> pageableCaptor = ArgumentCaptor.forClass(Pageable.class);
-        verify(applicationService).searchApplications(any(ApplicationSearchCriteria.class), pageableCaptor.capture());
+        verify(applicationService).searchApplications(
+                eq(OWNER_ID), any(ApplicationSearchCriteria.class), pageableCaptor.capture());
         return pageableCaptor.getValue();
     }
 
