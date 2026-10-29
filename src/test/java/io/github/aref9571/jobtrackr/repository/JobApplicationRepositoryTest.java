@@ -126,6 +126,68 @@ class JobApplicationRepositoryTest {
     }
 
     @Test
+    void findByIdAndOwnerId_ownerAndOtherOwner_returnsApplicationOnlyForOwner() {
+        JobApplication application = saveForOwner(ownerId, "ACME Corp", "Backend Engineer");
+        UUID otherOwnerId = saveOtherOwner();
+
+        assertThat(repository.findByIdAndOwnerId(application.getId(), ownerId)).isPresent();
+        assertThat(repository.findByIdAndOwnerId(application.getId(), otherOwnerId)).isEmpty();
+    }
+
+    @Test
+    void existsByIdAndOwnerId_ownerAndOtherOwner_returnsTrueOnlyForOwner() {
+        JobApplication application = saveForOwner(ownerId, "ACME Corp", "Backend Engineer");
+        UUID otherOwnerId = saveOtherOwner();
+
+        assertThat(repository.existsByIdAndOwnerId(application.getId(), ownerId)).isTrue();
+        assertThat(repository.existsByIdAndOwnerId(application.getId(), otherOwnerId)).isFalse();
+    }
+
+    @Test
+    void existsByCompanyAndRole_sameValuesForOtherOwner_returnsFalse() {
+        saveForOwner(ownerId, "ACME Corp", "Backend Engineer");
+        UUID otherOwnerId = saveOtherOwner();
+
+        boolean exists = repository.existsByOwnerIdAndCompanyIgnoreCaseAndRoleIgnoreCase(
+                otherOwnerId, "ACME Corp", "Backend Engineer");
+
+        assertThat(exists).isFalse();
+    }
+
+    @Test
+    void saveAndFlush_sameCompanyAndRoleForOtherOwner_isAllowed() {
+        saveForOwner(ownerId, "ACME Corp", "Backend Engineer");
+        UUID otherOwnerId = saveOtherOwner();
+
+        saveForOwner(otherOwnerId, "acme corp", "backend engineer");
+
+        assertThat(repository.count()).isEqualTo(2);
+    }
+
+    @Test
+    void saveAndFlush_unknownOwner_violatesForeignKey() {
+        JobApplication application = new JobApplication(
+                UUID.randomUUID(), "ACME Corp", "Backend Engineer", APPLIED_DATE, null, null, null);
+
+        assertThatThrownBy(() -> repository.saveAndFlush(application))
+                .isInstanceOf(DataIntegrityViolationException.class);
+    }
+
+    @Test
+    void deleteOwner_withApplications_deletesTheirApplications() {
+        saveForOwner(ownerId, "ACME Corp", "Backend Engineer");
+        UUID otherOwnerId = saveOtherOwner();
+        saveForOwner(otherOwnerId, "Globex", "Backend Engineer");
+        entityManager.clear();
+
+        userRepository.deleteById(ownerId);
+        entityManager.flush();
+        entityManager.clear();
+
+        assertThat(repository.findAll()).extracting(JobApplication::getOwnerId).containsExactly(otherOwnerId);
+    }
+
+    @Test
     void save_newApplication_setsCreatedAndUpdatedTimestamps() {
         Instant beforeSave = Instant.now();
         JobApplication application = new JobApplication(
@@ -178,6 +240,17 @@ class JobApplicationRepositoryTest {
     }
 
     @Test
+    void countPerStatus_twoOwners_countsOnlyGivenOwner() {
+        saveWithStatus("ACME Corp", "Backend Engineer", ApplicationStatus.APPLIED);
+        UUID otherOwnerId = saveOtherOwner();
+        saveForOwner(otherOwnerId, "Globex", "Backend Engineer");
+
+        List<StatusCount> counts = repository.countPerStatus(ownerId);
+
+        assertThat(counts).containsExactly(new StatusCount(ApplicationStatus.APPLIED, 1));
+    }
+
+    @Test
     void countPerStatus_noApplications_returnsEmptyList() {
         List<StatusCount> counts = repository.countPerStatus(ownerId);
 
@@ -220,10 +293,30 @@ class JobApplicationRepositoryTest {
     }
 
     @Test
+    void findTopCompanies_twoOwners_countsOnlyGivenOwner() {
+        saveWithStatus("ACME Corp", "Backend Engineer", ApplicationStatus.APPLIED);
+        UUID otherOwnerId = saveOtherOwner();
+        saveForOwner(otherOwnerId, "ACME Corp", "Java Developer");
+        saveForOwner(otherOwnerId, "Globex", "Backend Engineer");
+
+        List<CompanyCount> topCompanies = repository.findTopCompanies(ownerId, Limit.of(5));
+
+        assertThat(topCompanies).containsExactly(new CompanyCount("acme corp", 1));
+    }
+
+    @Test
     void findTopCompanies_noApplications_returnsEmptyList() {
         List<CompanyCount> topCompanies = repository.findTopCompanies(ownerId, Limit.of(5));
 
         assertThat(topCompanies).isEmpty();
+    }
+
+    private UUID saveOtherOwner() {
+        return userRepository.saveAndFlush(new User("bob@example.com", PASSWORD_HASH, Role.USER)).getId();
+    }
+
+    private JobApplication saveForOwner(UUID owner, String company, String role) {
+        return repository.saveAndFlush(new JobApplication(owner, company, role, APPLIED_DATE, null, null, null));
     }
 
     private void saveWithStatus(String company, String role, ApplicationStatus status) {

@@ -22,6 +22,7 @@ import java.util.UUID;
 import static io.github.aref9571.jobtrackr.repository.JobApplicationSpecifications.appliedOnOrAfter;
 import static io.github.aref9571.jobtrackr.repository.JobApplicationSpecifications.appliedOnOrBefore;
 import static io.github.aref9571.jobtrackr.repository.JobApplicationSpecifications.companyContains;
+import static io.github.aref9571.jobtrackr.repository.JobApplicationSpecifications.hasOwner;
 import static io.github.aref9571.jobtrackr.repository.JobApplicationSpecifications.hasStatus;
 import static org.assertj.core.api.Assertions.assertThat;
 
@@ -56,6 +57,19 @@ class JobApplicationSpecificationsTest {
         List<JobApplication> found = repository.findAll(search(null, null, null, null));
 
         assertThat(found).hasSize(6);
+    }
+
+    @Test
+    void findAll_hasOwner_returnsOnlyThatOwnersApplications() {
+        UUID otherOwnerId = userRepository.saveAndFlush(new User("bob@example.com", PASSWORD_HASH, Role.USER)).getId();
+        repository.saveAndFlush(new JobApplication(
+                otherOwnerId, "Globex", "Java Developer", LocalDate.of(2026, 9, 2), null, null, null));
+
+        List<JobApplication> annApplications = repository.findAll(hasOwner(ownerId));
+        List<JobApplication> bobApplications = repository.findAll(hasOwner(otherOwnerId));
+
+        assertThat(annApplications).hasSize(6).extracting(JobApplication::getOwnerId).containsOnly(ownerId);
+        assertThat(bobApplications).extracting(JobApplication::getRole).containsExactly("Java Developer");
     }
 
     @Test
