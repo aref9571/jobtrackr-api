@@ -1,6 +1,6 @@
 # JobTrackr API
 
-JobTrackr API is a Spring Boot REST API for tracking job applications. It is being built step by step from the JobTrackr domain in [java-foundations](https://github.com/aref9571/java-foundations). At this stage the project contains the job application domain model, its PostgreSQL table managed by Flyway, a Spring Data repository, a service layer with the application use cases, REST endpoints for creating, reading, updating, deleting and changing the status of job applications, request validation with consistent error responses, a list endpoint with filters, paging and sorting, a status history for each application, statistics computed in the database, user registration with BCrypt password hashing, login with JSON Web Tokens (JWT) that protect every application endpoint, applications that belong to the user who created them so that every user sees only their own data, an admin endpoint with totals across all users, OpenAPI documentation with Swagger UI, a health check endpoint, an end-to-end API test, a coverage report and a continuous integration build.
+JobTrackr API is a Spring Boot REST API for tracking job applications. It is being built step by step from the JobTrackr domain in [java-foundations](https://github.com/aref9571/java-foundations). At this stage the project contains the job application domain model, its PostgreSQL table managed by Flyway, a Spring Data repository, a service layer with the application use cases, REST endpoints for creating, reading, updating, deleting and changing the status of job applications, request validation with consistent error responses, a list endpoint with filters, paging and sorting, a status history for each application, statistics computed in the database, user registration with BCrypt password hashing, login with JSON Web Tokens (JWT) that protect every application endpoint, applications that belong to the user who created them so that every user sees only their own data, an admin endpoint with totals across all users, OpenAPI documentation with Swagger UI, a health check endpoint, a production profile that takes all settings from environment variables, a Docker image and a Docker Compose setup that runs the whole system, an end-to-end API test, a coverage report and a continuous integration build.
 
 ## Tech stack
 
@@ -11,7 +11,7 @@ JobTrackr API is a Spring Boot REST API for tracking job applications. It is bei
 - Maven with the Maven Wrapper
 - JUnit 5, Mockito and Testcontainers
 - JaCoCo for test coverage
-- Docker Compose for the local database
+- Docker (multi-stage image) and Docker Compose for the database and the whole system
 - GitHub Actions
 
 ## Requirements
@@ -41,12 +41,21 @@ openssl rand -base64 32
 
 Put the output of `openssl rand -base64 32` into `JWT_SECRET`. The application does not start when `JWT_SECRET` is missing or shorter than 32 bytes. Tokens are valid for one hour (`jobtrackr.jwt.expiration` in `application.yml`).
 
+### Profiles
+
+Without an active profile the application uses `application.yml`, which has the local defaults shown in the table above. The `prod` profile (`application-prod.yml`, enabled with `SPRING_PROFILES_ACTIVE=prod`) is meant for containers and deployment:
+
+- `DB_URL`, `DB_USERNAME`, `DB_PASSWORD` and `JWT_SECRET` have no default values and must all be set as environment variables
+- Actuator exposes only `/actuator/health`, and the health response shows only the status, without details about the database or other components
+
+The same Docker image runs everywhere; only the environment variables change.
+
 ## Run
 
-Start PostgreSQL:
+Start PostgreSQL only:
 
 ```bash
-docker compose up -d
+docker compose up -d postgres
 ```
 
 Start the application with the variables from `.env`:
@@ -69,6 +78,37 @@ curl http://localhost:8080/actuator/health
 The response contains `"status":"UP"`.
 
 Stop the database with `docker compose down`. Add `-v` to delete its data volume as well.
+
+## Running with Docker
+
+Docker Compose can also build the application image and run it next to PostgreSQL. Only Docker is needed for this; JDK 21 is not.
+
+```bash
+cp .env.example .env
+docker compose up --build
+```
+
+Set `DB_PASSWORD` and `JWT_SECRET` in `.env` first, as described in [Configuration](#configuration). Compose starts two services:
+
+- `postgres`: PostgreSQL 17 with the data in the `postgres-data` volume
+- `app`: the API built from the `Dockerfile`, started with the `prod` profile once PostgreSQL reports healthy. Compose passes `DB_USERNAME`, `DB_PASSWORD` and `JWT_SECRET` from `.env` and sets `DB_URL` to the `postgres` service
+
+The API is then available on http://localhost:8080 as before. Check the services with `docker compose ps` and the logs with `docker compose logs app`. Stop everything with `docker compose down`, and add `-v` to delete the database volume as well.
+
+The `Dockerfile` has two stages. The first stage builds the jar with the Maven Wrapper on a JDK image and skips the tests, because they run in CI. The second stage copies only the jar into a smaller JRE image and runs it as the non-root user `jobtrackr`. The image contains no secrets; they are passed as environment variables when the container starts.
+
+To build and run the image without Compose:
+
+```bash
+docker build -t jobtrackr-api .
+docker run --rm -p 8080:8080 \
+  -e SPRING_PROFILES_ACTIVE=prod \
+  -e DB_URL=jdbc:postgresql://<host>:5432/jobtrackr \
+  -e DB_USERNAME=<user> \
+  -e DB_PASSWORD=<password> \
+  -e JWT_SECRET=<secret> \
+  jobtrackr-api
+```
 
 ## API documentation
 
@@ -348,6 +388,7 @@ Docker must be running, because some tests start a PostgreSQL 17 container with 
 | Context test | `JobtrackrApiApplicationTests` | Starts the application context against PostgreSQL in Testcontainers |
 | Integration test | `ApplicationApiIntegrationTest` | The whole application on a random port against PostgreSQL in Testcontainers, called over HTTP with `RestTestClient`: register, log in, then create, get, update, change status, history, statistics and delete with the token |
 | Integration test | `AuthApiIntegrationTest` | Registration and login over HTTP against PostgreSQL, the stored BCrypt hash, duplicate emails in another case, the token claims, the same 401 for a wrong password and an unknown email, requests without a token or with a broken, expired or foreign token, and which paths are public |
+| Integration test | `ProductionProfileIntegrationTest` | The application with the `prod` profile: the database settings come only from environment variables, the health response shows only the status, and other Actuator endpoints are not public |
 | Integration test | `OwnershipApiIntegrationTest` | Two users over HTTP against PostgreSQL: one user cannot read, update, change the status of, delete or see the history of the other user's application (404), list, search and statistics only include the user's own applications, the duplicate rule applies per user, and `/api/admin/stats` returns 401 without a token, 403 for `USER` and 200 for `ADMIN` |
 
 Run one test class:
