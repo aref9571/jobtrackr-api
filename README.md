@@ -110,6 +110,25 @@ docker run --rm -p 8080:8080 \
   jobtrackr-api
 ```
 
+## Deployment
+
+Every push to `main` that passes the build and tests also publishes the Docker image to the GitHub Container Registry as `ghcr.io/aref9571/jobtrackr-api`, with two tags: `latest` and the full commit SHA. The `publish-image` job in `.github/workflows/ci.yml` logs in with the workflow's own `GITHUB_TOKEN`, which has `packages: write` permission only for that job.
+
+The API runs as a Render web service created from that image, with the database on Neon (PostgreSQL 17). The service sets these environment variables in the Render dashboard; none of them are stored in the repository:
+
+| Variable | Value |
+|---|---|
+| `SPRING_PROFILES_ACTIVE` | `prod` |
+| `DB_URL` | `jdbc:postgresql://<neon-host>/<database>?sslmode=require` |
+| `DB_USERNAME` | the Neon database user |
+| `DB_PASSWORD` | the Neon database password |
+| `JWT_SECRET` | a random value from `openssl rand -base64 48` |
+| `PORT` | `8080`, the port the API listens on |
+
+On the first start, Flyway creates the tables by applying the migrations V1 to V4. Later starts apply only migrations that are new.
+
+The service runs on free plans. Render stops a free instance after 15 minutes without requests, so the first request after a quiet period can take about a minute while the container starts again. Neon also suspends an idle database after 5 minutes and wakes it on the next connection.
+
 ## API documentation
 
 While the application is running, Swagger UI lists every endpoint with its parameters, request bodies and responses, and can send requests to the running application:
